@@ -1,0 +1,307 @@
+---
+title: "DATA 607 Week 2 Assignment - Subsetting Datasets"
+author: "Keith Folsom"
+date: "February 6, 2016"
+output: html_document
+---
+    
+##Introduction
+    
+This week 2 assignment for DATA 607 will subset the data provided by the UCI OnlineNewsPopularity dataset located here:
+
+https://archive.ics.uci.edu/ml/datasets/Online+News+Popularity
+
+The actual dataset found here:
+
+https://archive.ics.uci.edu/ml/machine-learning-databases/00332/OnlineNewsPopularity.zip
+
+
+##About the Data
+
+The authors of this study collected over 39,000 articles from the Mashable website as a base set of data to perform predicative analytics using a novel and proactive Intelligent Decision Support System (IDSS) that analyzes articles prior to their publication.  The data collected about the articles extracted a broad set of features such as keywords, digital content, and other early indicators of popularity.
+
+The OnlineNewsPopularity dataset summarizes a set of features and statistics about articles published by Mashable (www.mashable.com) over a period of two years -- 2013 and 2014. The goal is to predict the number of shares in social networks as a means of assessing the popularity of the article.
+
+
+##Loading and Preparing the UCI OnlineNewsPopularity Dataset
+
+The processing below specifically requires the `lubridate` package.  The dataset will be downloaded and unzipped within the current working directory.
+
+```{r, echo=FALSE}
+
+suppressWarnings(suppressMessages(require(lubridate)))
+
+```
+
+Load the data from the UCI Maching Learning Repository
+
+```{r, eval=TRUE }
+
+## download the OnlineNewsPopularity dataset 
+## dataset is in a zip file
+## assumes that the working directory has been set
+
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/00332/OnlineNewsPopularity.zip"
+
+download.file <- "OnlineNewsPopularity.zip"
+
+if ( ! file.exists(download.file)) {
+    download.file(url, download.file, mode="wb")
+    unzip(download.file)
+}
+
+## load the dataset into a dataframe
+## the dataset is in csv format with column headers
+online_news <- read.csv("./OnlineNewsPopularity/OnlineNewsPopularity.csv", header=TRUE, stringsAsFactors = FALSE)
+
+```
+
+
+Let's look at the OnlineNewsPopularity dataset from the UCI Maching Learning Repository
+
+
+``` {r}
+
+str(online_news)
+
+```
+## Data Dictionary
+
+
+The following lists the predictor or explanatory variables being considered, as provided by the creators of the dataset:
+
+
+Variable Name    | Description 
+---------------- | --------------- 
+`url`  | URL of the article
+`timedelta`| Days between the article publication and the dataset acquisition
+`n_tokens_title` | Number of words in the title   
+`n_tokens_content` | Number of words in the title  
+`n_unique_tokens`|                Rate of unique words in the content
+`n_non_stop_words`|               Rate of non-stop words in the content
+`n_non_stop_unique_tokens`|       Rate of unique non-stop words in the content
+`num_hrefs`|                     Number of links
+`num_self_hrefs`|                Number of links to other articles published by Mashable
+`num_imgs`|                     Number of images
+`num_videos`|                     Number of videos  
+`average_token_length`|           Average length of the words in the
+`num_keywords`|                   Number of keywords in the metadata
+`data_channel_is_lifestyle`|    Is data channel 'Lifestyle'?  
+`data_channel_is_entertainment`| Is data channel 'Entertainment'?  
+`data_channel_is_bus`  |         Is data channel 'Business'?  
+`data_channel_is_socmed` |       Is data channel 'Social Media'?  
+`data_channel_is_tech`  |        Is data channel 'Tech'?  
+`data_channel_is_world`  |       Is data channel 'World'?  
+`kw_min_min`  |                   Worst keyword (min. shares)
+`kw_max_min`  |                    Worst keyword (max. shares)
+`kw_avg_min`  |                    Worst keyword (avg. shares)
+`kw_min_max`  |                    Best keyword (min. shares)
+`kw_max_max`  |                    Best keyword (max. shares)
+`kw_avg_max`  |                    Best keyword (avg. shares)
+`kw_min_avg`  |                    Avg. keyword (min. shares)
+`kw_max_avg`  |                   Avg. keyword (max. shares)
+`kw_avg_avg`  |                   Avg. keyword (avg. shares)
+`self_reference_min_shares`  |      Min. shares of referenced articles in Mashable
+`self_reference_max_shares`  |      Max. shares of referenced articles in Mashable 
+`self_reference_avg_sharess`  |     Avg. shares of referenced articles in Mashable
+`weekday_is_monday` |            Was the article published on a Monday?  
+`weekday_is_tuesday` |          Was the article published on a Tuesday?  
+`weekday_is_wednesday` |         Was the article published on a Wednesday?  
+`weekday_is_thursday` |          Was the article published on a Thursday?  
+`weekday_is_friday`   |          Was the article published on a Friday?  
+`weekday_is_saturday` |         Was the article published on a Saturday?  
+`weekday_is_sunday`  |           Was the article published on a Sunday? 
+`is_weekend`  |                     Was the article published on the weekend?
+`LDA_00`  |                        Closeness to LDA topic 0
+`LDA_01`  |                       Closeness to LDA topic 1
+`LDA_02`  |                        Closeness to LDA topic 2
+`LDA_03`  |                        Closeness to LDA topic 3
+`LDA_04`  |                        Closeness to LDA topic 4
+`global_subjectivity`  |          Text subjectivity
+`global_sentiment_polarity`  |     Text sentiment polarity
+`global_rate_positive_words`  |    Rate of positive words in the content
+`global_rate_negative_words`  |    Rate of negative words in the content
+`rate_positive_words`  |           Rate of positive words among non-neutral tokens
+`rate_negative_words`  |           Rate of negative words among non-neutral tokens
+`avg_positive_polarity`  |         Avg. polarity of positive words
+`min_positive_polarity`  |         Min. polarity of positive words
+`max_positive_polarity`  |         Max. polarity of positive words
+`avg_negative_polarity`  |         Avg. polarity of negative  words
+`min_negative_polarity`  |         Min. polarity of negative  words
+`max_negative_polarity`  |         Max. polarity of negative  words
+`title_subjectivity`  |           Title subjectivity
+`title_sentiment_polarity`  |      Title polarity
+`abs_title_subjectivity`  |        Absolute subjectivity level
+`abs_title_sentiment_polarity`  |  Absolute polarity level
+`shares`  |                       Number of shares (target)
+
+ 
+
+__Transformations applied to the dataset__
+
+1.) A new categorical variable will be created called `news_channel` valued with Lifestyle, Entertainment, Business, Social Media, Tech, and World.  These values will be derived from the following data channel indicator variables in the dataset:
+    
+* data_channel_is_lifestyle
+* data_channel_is_entertainment
+* data_channel_is_bus
+* data_channel_is_socmed
+* data_channel_is_tech
+* data_channel_is_world
+
+2.) A new categorical variable call `day_published` will be created to indicate the day of the week the news article was published.  The day of the week value will be derived from the following weekday indicator variables in the dataset:
+    
+* weekday_is_monday
+* weekday_is_tuesday
+* weekday_is_wednesday
+* weekday_is_thursday
+* weekday_is_friday
+* weekday_is_saturday
+* weekday_is_sunday
+
+3.) The date of publication and the publication year will be derived as separate variables from the URL
+
+4.) Variables not being considered will be removed from the final dataframe
+
+###Begin Processing the final data frame
+
+``` {r}
+## keep only the specific variables needed for this analysis
+keepvars <- c("url", 
+              "n_tokens_title", 
+              "n_tokens_content",
+              "num_imgs",
+              "num_videos",
+              "data_channel_is_lifestyle",
+              "data_channel_is_entertainment",
+              "data_channel_is_bus",
+              "data_channel_is_socmed",
+              "data_channel_is_tech",	 
+              "data_channel_is_world",
+              "weekday_is_monday",	 
+              "weekday_is_tuesday",	 
+              "weekday_is_wednesday",	 
+              "weekday_is_thursday",	 
+              "weekday_is_friday",	 
+              "weekday_is_saturday",	 
+              "weekday_is_sunday",
+              "shares")
+
+# remove the variables not considered in the analysis from the data frmae
+
+online_news_df <- online_news[keepvars]
+
+
+# convert the dummy variables to categorical variables for the data channel
+
+online_news_df$news_channel <- NA 
+online_news_df$news_channel[online_news_df$data_channel_is_lifestyle==1] <- "Lifestyle"
+online_news_df$news_channel[online_news_df$data_channel_is_entertainment==1] <- "Entertainment"
+online_news_df$news_channel[online_news_df$data_channel_is_bus==1] <- "Business"
+online_news_df$news_channel[online_news_df$data_channel_is_socmed==1] <- "Social Media"
+online_news_df$news_channel[online_news_df$data_channel_is_tech==1] <- "Technology"
+online_news_df$news_channel[online_news_df$data_channel_is_world==1] <- "World"
+
+# Create the News Channel variable 
+online_news_df$news_channel <-  factor(online_news_df$news_channel, 
+                                       levels = c("Business", 
+                                                  "Entertainment", 
+                                                  "Lifestyle", 
+                                                  "Technology", 
+                                                  "World",
+                                                  "Social Media"))
+
+# convert the dummy variables to categorical variables for the day of the week the article was published
+
+online_news_df$day_published <- NA
+online_news_df$day_published [online_news_df$weekday_is_monday==1] <- "Monday"
+online_news_df$day_published [online_news_df$weekday_is_tuesday==1] <- "Tuesday"
+online_news_df$day_published [online_news_df$weekday_is_wednesday==1] <- "Wednesday"
+online_news_df$day_published [online_news_df$weekday_is_thursday==1] <- "Thursday"
+online_news_df$day_published [online_news_df$weekday_is_friday==1] <- "Friday"
+online_news_df$day_published [online_news_df$weekday_is_saturday==1] <- "Saturday"
+online_news_df$day_published [online_news_df$weekday_is_sunday==1] <- "Sunday"
+
+# create the variable for the day, date, and year of publication
+
+online_news_df$day_published <- factor(online_news_df$day_published, 
+                                       levels = c( "Monday", "Tuesday", "Wednesday", "Thursday",
+                                                   "Friday", "Saturday", "Sunday"))
+
+online_news_df$date_published <- ymd(substr(online_news_df$url, 21, 30))
+online_news_df$year_published <- as.numeric(substr(online_news_df$url, 21, 24))
+
+
+## drop unused variables
+
+removevars <- c("data_channel_is_lifestyle",
+                "data_channel_is_entertainment",
+                "data_channel_is_bus",
+                "data_channel_is_socmed",
+                "data_channel_is_tech",	 
+                "data_channel_is_world",
+                "weekday_is_monday",	 
+                "weekday_is_tuesday",	 
+                "weekday_is_wednesday",	 
+                "weekday_is_thursday",	 
+                "weekday_is_friday",	 
+                "weekday_is_saturday",	 
+                "weekday_is_sunday")
+
+online_news_df <- online_news_df[, !(colnames(online_news_df) %in% removevars)]
+
+## keep only complete cases within the dataset.  Some day and channel indicators are not valued in the original dataset.
+
+online_news_df <- online_news_df[complete.cases(online_news_df), ]
+
+#remove the original online news dataframe
+online_news <- NULL
+
+# Look at final Online News Popularity data frame
+str(online_news_df)
+
+summary(online_news_df)
+
+
+```
+
+## Final Data Frame
+
+
+The following lists the variables derived or retained in the final data frame.
+    
+## Data Dictionary
+
+
+Variable Name    | Description 
+---------------- | --------------- 
+`url`  | URL of the article
+`n_tokens_title` | Number of words in the title   
+`n_tokens_content` | Number of words in the title  
+`num_imgs`|                     Number of images
+`num_videos`|                     Number of videos  
+`global_subjectivity`  |          Text subjectivity
+`global_rate_positive_words`  |    Rate of positive words in the content
+`global_rate_negative_words`  |    Rate of negative words in the content
+`title_subjectivity`  |           Title subjectivity
+`shares`  |                       Number of shares (target)
+`news_channel`  |  Factor: Business, Entertainment, Lifestyle, Technology, World, Social Media
+`day_published`  | Factor: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+`year_published`  | Year of article's publication: 2013 or 2014
+`date_published`  | Date of article's publication
+
+### Subsetting by Year
+
+If we want create data frames by year, we can subset the data using the `year_published`:
+
+``` {r, eval=TRUE}
+online_news_df.2013 <- subset(online_news_df, year_published == 2013)
+online_news_df.2014 <- subset(online_news_df, year_published == 2014)
+
+# show summary statistics for 2013
+summary(online_news_df.2013)
+
+# show summary statistics for 2014
+summary(online_news_df.2014)
+
+```
+
