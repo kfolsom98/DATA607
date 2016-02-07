@@ -162,7 +162,7 @@ __Transformations applied to the dataset__
 
 4.) Variables not being considered will be removed from the final dataframe
 
-###Begin Processing the final data frame
+### Process the dataset into the final data frame
 
 ``` {r}
 ## keep only the specific variables needed for this analysis
@@ -279,10 +279,6 @@ Variable Name    | Description
 `n_tokens_content` | Number of words in the title  
 `num_imgs`|                     Number of images
 `num_videos`|                     Number of videos  
-`global_subjectivity`  |          Text subjectivity
-`global_rate_positive_words`  |    Rate of positive words in the content
-`global_rate_negative_words`  |    Rate of negative words in the content
-`title_subjectivity`  |           Title subjectivity
 `shares`  |                       Number of shares (target)
 `news_channel`  |  Factor: Business, Entertainment, Lifestyle, Technology, World, Social Media
 `day_published`  | Factor: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
