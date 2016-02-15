@@ -1,0 +1,290 @@
+---
+title: "Week 3 - Combining Data from Multiple Sources"
+author: "Keith Folsom"
+date: "February 13, 2016"
+output: html_document
+---
+
+##Introduction
+
+The focus of this assignment is to create an R dataframe that shows rates of tuberculosis infection by country.  Tuberculosis (tb) data will be sourced from a tb database in MySQL and combined with a CSV file of population data, located on GitHub.  The final R dataframe will have the following columns:  
+
+`Country`  
+`Year`  
+`Rate` 
+
+Where Rate is defined as Cases/Population. 
+
+To run this code, the following packages are required:  
+
+1. RMySQL
+2. dplyr
+3. sqldf
+4. ggplot2
+5. downloader
+6. htmlTable
+
+```{r, eval = TRUE, echo = FALSE}
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(RMySQL)))
+suppressWarnings(suppressMessages(library(sqldf)))
+suppressWarnings(suppressMessages(library(downloader)))
+suppressWarnings(suppressMessages(library(htmlTable)))
+
+#
+options(scipen=999)
+```
+
+###Getting and Preparing the Data
+
+###_Step 1._ Connect to MySQL and retrieve the tb dataset stored in a database table. 
+
+This connection uses the RMySQL package to store the tb dataset in the `tb` dataframe in an unaggregated form.
+
+
+```{r, eval = TRUE }
+mydb = dbConnect(MySQL(), user='root', password='password', dbname='tb', host='localhost')
+
+# return the tb query below and store the results a dataframe called tb
+tb <- dbGetQuery(mydb, "select country, year, sex, child + adult + elderly as cases from tb")
+
+```
+
+```{r, eval = TRUE, echo = FALSE }
+
+#disconnect from the MySQL database
+dbDisconnect(mydb)
+
+#unload the RMySQL package - this will simplify processing dataframes with sqldf
+
+detach("package:RMySQL", unload=TRUE)
+
+```
+
+Let's take a look at the `tb` dataframe:
+
+```{r, eval=TRUE}
+
+summary(tb)
+
+```
+
+_tb dataset variables_
+
+Variable Name    | Description 
+---------------- | --------------- 
+`country`        | country; distint countries = `r length(unique(tb$country))`
+`year`           | year of tb cases recorded; ranges from min 1995 to max 2013 
+`sex`            | male or female; always valued
+`cases`          | numberic; represents the sum of child, elderly, and adult tb cases recorded for the given country, year, and sex
+
+In the `tb` dataset, we can see that there are 420 NA values for cases of tb infections recorded.  Let's see which countries are most impacted by the missing values for cases:
+
+
+```{r, eval=TRUE}
+
+# Use sqldf to find the countries and years associated with the missing cases variable
+
+missing <- sqldf("select country, 
+                         min(year) as min_year, 
+                         max(year) as max_year,
+                         sum(case when sex = 'male' then 1 else 0 end) missing_male_cases,
+                         sum(case when sex = 'female' then 1 else 0 end) missing_female_cases
+                    from tb where cases is null
+                   group by country 
+                   order by missing_male_cases desc, missing_female_cases desc
+                   ")
+
+
+
+htmlTable(missing, caption = 'Summary of Missing Values by Country in the TB dataset')
+
+```
+
+
+We can see from the table of missing values that Mozambique is most impacted, followed by the countries of Chad, Turkey, and Belarus.
+
+An additional discovery in this dataset is that there may be scenarios where male cases are reported for a given country in a specific year but no female cases, or vice versa.  This may factor into the next level of data preparation as we look to aggregate the `tb` data by `country`, `year`, and `cases` which are total reported cases among both men and women.
+
+####Aggregate the tb dataset
+
+This step in processing will aggregate the tb dataset so that it represents the total number of tb cases among men and women for a given country by each year reported.  NA or missing values will be excluded since these represent incomplete cases.
+
+```{r, eval = TRUE}
+
+tb <- tbl_df(tb)
+
+## Aggregation using sqldf
+tb_agg_sqldf <- sqldf("select country, year, sum(cases) as cases
+                         from tb
+                        group by country, year 
+                       having cases is not null")
+
+## Aggregation using dplyr
+tb_agg2_dplyr <- tb %>% 
+                 group_by(country, year) %>% 
+                 summarise(cases = sum(cases)) %>% 
+                 filter(!is.na(cases)) %>%           # remove NA's 
+                 arrange(country, year)              # order by country and year
+
+tb_agg2_dplyr <- as.data.frame(tb_agg2_dplyr)
+```
+
+Aggregation has been performed using two methods: 1.) using sqldf and 2.) using dplyr
+
+Inspecting the results, we can see that the results of the aggregation are slightly different:
+
+
+Method Used      | Rowcount
+---------------- | --------------- 
+sqldf            | `r nrow(tb_agg_sqldf)`
+dplyr            | `r nrow(tb_agg2_dplyr)`
+
+
+####Determine which country/value combination is not in the aggregate dataframe created by dplyr
+
+To determine the difference between the two aggregated dataframes, we'll use sqldf to isoloate the value(s):
+
+```{r, eval = TRUE}
+sqldf("select country, year from tb_agg_sqldf except select country, year from tb_agg2_dplyr")
+
+```
+Based on the results, we can see that something in particular with Columbia in 1999 is causing a difference.  The output below shows the issue:
+
+```{r, eval = TRUE, echo=FALSE}
+htmlTable(filter(tb, country=="Colombia", year == 1999))
+
+```
+
+This is an incomplete case since the number of female cases for this year is missing.  We'll continue procesing using the dplyr aggregated dataframe and remove the sqldf version from further consideration.
+
+```{r, eval = TRUE, echo = FALSE}
+tb_agg_sqldf <- NULL
+
+```
+
+###_Step 2._ Retrieve the population dataset from GitHub and load into a dataframe. 
+
+This dataset captures the total population by country over multiple years.  
+
+```{r, eval = TRUE}
+
+# location of the population CSV file on GitHub
+
+url <- "https://raw.githubusercontent.com/kfolsom98/DATA607/master/population.csv"
+
+download_file <- "population.csv" # name of the file on the local machine after download
+
+# the file will be downloaded to the working directory
+downloader::download(url, download_file)
+
+# read the population dataset into a dataframe
+
+population <- read.csv(download_file, header=TRUE, stringsAsFactors = FALSE)
+
+```
+
+Let's take a look at the `population` dataset:
+
+```{r, eval = TRUE}
+
+summary(population)
+
+```
+
+*population dataset variables*
+
+Variable Name    | Description 
+---------------- | --------------- 
+`country`        | country; distint countries = `r length(unique(population$country))`
+`year`           | year of tb cases recorded; ranges from min 1995 to max 2013 
+`population`     | popuation of the country; no missing values 
+
+
+###_Step 3._ Combine the tb and population datasets 
+
+
+#### Combine the tb dataset with the population dataset to calculate the rate of tuberculosis infection by country.
+
+During this step, the `tb` dataframe will be the driving set of data for the calculation of the variable `rate`.  In other words, `rate` will only be calculated for countries where the year and the number of tb cases are complete.
+
+```{r, eval = T}
+
+# join the tb.agg dataframe to the population dataframe
+# create a new variable called rate = cases/population
+# remove the cases and population variables
+
+final_tb_df <- 
+        inner_join(tb_agg2_dplyr, population, by=c("country", "year")) %>%   
+        mutate(rate = cases/population) %>%                                  
+        select( -cases, -population)                                         
+
+final_tb_df <- as.data.frame(final_tb_df)
+
+# round the rate variable to 4 digits 
+
+final_tb_df$rate <- round(final_tb_df$rate, digits = 4)
+
+```
+
+
+Let's look at the a portion of the final tb dataset:
+
+```{r, eval = T}
+htmlTable(head(arrange(final_tb_df, country, year), 20))
+
+
+
+```
+
+
+```{r, eval = F}
+
+# Alternative approach to calculate the combined dataframe using sqldf
+# This approach seems slightly more intuitive than the dplyr approach for this particular problem
+
+final_with_sqldf <-  sqldf("select tb.country            as country, 
+                                   tb.year               as year, 
+                                   tb.cases/p.population as rate
+                              from tb_agg2_dplyr tb 
+                              inner join population p on tb.country = p.country and tb.year = p.year")
+```   
+
+
+##Future Analysis Options Using the Final TB Dataset
+
+1. Using the latest year reported, what are the top 10 countries with the highest rates of tb infection based on population?  
+
+```{r, eval = TRUE}
+
+highest_rates <- final_tb_df %>%            
+                 top_n( 1, year ) %>%  
+                 top_n(10)   %>% arrange(desc(rate)) 
+
+
+ggplot(highest_rates, aes(x=country, y=rate, fill=country)) + geom_bar(stat="identity") + coord_flip() +
+    geom_text(aes(label=rate), vjust=0, size = 4)  +
+    xlab("Country") + ylab("Rate of TB Infection") +
+    ggtitle("Top 10 Countries with the Highest TB Infection Rate")
+
+```
+
+2.  Using the latest year reported, what are the top 10 countries with the lowest rates of tb infection based on population?  
+
+```{r, eval = TRUE}
+
+final_tb_df %>%           
+  top_n( 1, year ) %>%  
+  arrange(rate)      %>% 
+  filter(row_number() <= 10 ) %>% 
+ggplot(aes(x=country, y=rate, fill=country)) + geom_bar(stat="identity") +
+    coord_flip() + 
+    geom_text(aes(label=rate), vjust=0, size = 2)  + 
+    xlab("Country") + ylab("Rate of TB Infection") +
+    ggtitle("Top 10 Countries with the Lowest TB Infection Rate")
+
+```
+
+3.  Find countries where the tb rate is increasing.
+
