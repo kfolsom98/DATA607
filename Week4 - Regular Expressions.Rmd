@@ -1,0 +1,203 @@
+---
+title: 'DATA607: Week 4 Assignment - R Character Manipulation and Date Processing'
+author: "Keith Folsom"
+date: "February 18, 2016"
+output: html_document
+---
+
+The assignment for Week 4 will focus on regular expressions and requires the stringr package to be loaded.
+
+```{r}
+library(stringr)
+
+```
+
+###3. Copy the introductory example.  The vector `name` stores the extracted columns.
+
+```{r, eval = TRUE}
+# create the name vector with the Simpsons characters' names 
+
+name <- c("Moe Szyslak", "Burns, C. Montgomery", "Rev. Timothy Lovejoy", "Ned Flanders", "Simpson, Homer", "Dr. Julius Hibbert")
+
+# view the names
+name
+
+```
+####(a) Use the tools of this chapter to rearrange the vector so that all elements conform to the standard first_name last_name.
+
+To do this, I created a function to loop through the elements in the vector to handle each different scenario in the name format.
+
+```{r, eval = TRUE}
+
+#################################################################################
+# Function   : name_standardize
+# Description: When passed a name vector with varying name formats
+#              this function will return a string in the format of:
+#                  Title First_Name Middle_Name Last_Name
+#              The parameter remove_title is defaulted to TRUE; set to FALSE to
+#              leave the title in the name vector returned.
+#################################################################################
+name_standardize <- function(names_in, remove_title = TRUE) {
+    
+        return_names <- names_in 
+        
+        # remove title or prefix from name string before processing
+        # This currently include Rev or Dr but could be expanded to include Mr./Mrs.
+        if (remove_title) {
+            
+            return_names <- str_replace(return_names, "Rev. |Dr. ", "")
+        }
+        
+        for (i in 1:length(return_names)) {
+            
+              # if the first word is followed by a comma, assume this is the last name
+              # and adjust to the end of the string
+            
+              if (str_detect(return_names[i], ",") == TRUE ) {
+                  
+                  first_name <- str_extract(return_names[i], "(?<=, ).*?(?=$)")
+                  last_name  <- str_extract(return_names[i], "(?<=\\w?).*?(?=,)")
+                  
+                  return_names[i] <- str_c(first_name, " ", last_name)
+              }
+            
+        }    
+        
+        return(return_names)
+}
+
+#################################################################################
+# Function   : remove_middle_name
+# Description: When passed a name string in the format of:
+#                     first_name middle_name last_name
+#              removes the middle name and returns first_name last_name
+#################################################################################
+remove_middle_name <- function(names_in) {
+    
+       return_names <- names_in  # initialize the return vector 
+    
+        # handle any names that include a middle name
+        # this block of code removes the middle name from the string
+        for (i in 1:length(return_names)) {
+            
+            if (length(unlist(str_split(return_names[i], " "))) == 3 ) {
+                  
+                 first_name <- str_extract(return_names[i], "^(\\w+)")
+                 last_name  <- str_extract(return_names[i], "(\\w+)$")
+                 return_names[i] <- str_c(first_name, " ", last_name)
+                  
+             }
+        }
+        
+        
+        return(return_names)
+}
+
+```
+
+Applying the function `name_standardize` to the vector of names will return the names in the more standard format of:  
+
+_Title First_Name Middle_Name Last_Name_   
+
+*Note. the parameter `remove_title` is defaulted to TRUE; change this paramater to FALSE will leave the title in place
+
+```{r, eval = TRUE}
+
+standard_name <- name_standardize(name);  standard_name
+
+```
+
+To further format the original `name` vector to the format of first_name last_name, apply the `remove_middle_name` function to the standardized names now in the `standard_name` vector.
+
+```{r, eval = TRUE}
+
+formatted_name <- remove_middle_name(standard_name);  formatted_name
+
+```
+
+
+####(b) Construct a logical vector indicating whether a character has a title.
+
+Let's standardize the name vector but leave title in place:
+
+```{r, eval = TRUE}
+name_with_title <- name_standardize(name, FALSE);  name_with_title
+
+```
+
+Find any character names that include a title:
+
+```{r, eval = TRUE}
+# look for the occurence of a string of 2 - 3 characters followed by a period
+
+title <- str_detect(name, '^[:alpha:]{2,3}\\.'); title
+
+```
+We should see TRUE for Rev. Timothy Lovejoy and Dr. Julius Hibbert
+
+####(c) Construct a logical vector indicating whether a character has a second name.
+
+This regular expression starts with a 1) positive lookbehind assertion to match the the first name ending with either a space or a period and then 2.) match any word between the next 3.) positive lookbehind assertion looking for the next occurence of whitespace.
+
+Let's look at the standardized name vector which does not include title:
+
+```{r, eval = TRUE}
+
+standard_name
+
+```
+
+Find any name that includes a middle name:
+
+```{r, eval = TRUE}
+# use the standard_name vector in the example
+
+middle_name <- str_detect(standard_name, "(?<=. ).*?(?=\\s)"); middle_name
+
+```
+The logical vector returned should be TRUE for the name C. Montgomery Burns
+
+
+###7. Consider the string `<title>+++BREAKING NEWSS+++</title>`.  We would like to extract the first HTML tag.  To do so, we write the regular expression <.+>.  Explain why this fails and correct the expression.
+
+```{r, eval=T}
+tag <- '<title>+++BREAKING NEWSS+++</title>'
+
+str_extract(tag, "<.+>")
+            
+```
+
+This regular expression extracts the entire string because:
+
+`.` -- matches any character except a new line  
+`+` -- repeat the previous step from 1 to infinite times, which returns the entire string  
+
+
+To adjust the regular expression to extract only `<title>`, include `?` so that the shorted match is made once.
+
+```{r, eval=T}
+
+str_extract(tag, "<.+?>")
+            
+```            
+
+###8. Consider the string `(5-3)^2=5^2-2*5*3+3^2 conforms to the binomial theorem`.  We would like to extract the formula in the string.  To do so, we write the regular expression [^0-9=+*()]+.  Explain why this fails and correct the expression.
+
+```{r, eval = TRUE}
+
+string <- "(5-3)^2=5^2-2*5*3+3^2 conforms to the binomial theorem"
+
+str_extract(string, "[^0-9=+*()]+")
+
+```
+
+This fails because adding the caret `^` inverted the character class when in fact the regular expression needs to include the characters like ^, =, *, +, and ()
+
+changing the regular expression to this will return the formular portion of the string:
+
+```{r, eval = TRUE}
+str_extract(string, "[[:digit:]=+*()^-]+")
+
+```
+
+Moving the `^` to the end of the expression along with the other special characters to include in the match changes the expression so that extracts the formula.
