@@ -47,7 +47,7 @@ Addtionally, the results of each player's seven matches will be converted from w
 The R code for this project can be found on GitHub [here](https://github.com/kfolsom98/DATA607) under "Project 1 - Chess Tournament Results".  If executing the code, be sure to set your working directory to an appropriate directory in your environment.  Three files will be created in this directory: 1.) **tournamentinfo.txt** 2.) **Chess_Players.csv** and 3.) **Chess_Player_Matches.csv**.
 
 
-The following R packages are required for this project:
+The following R packages are required for this project: 
 
 1. reshape2
 2. dplyr
@@ -213,10 +213,17 @@ Creating the final output will focus on calculating the value of each player's A
 
 **Chess Player Dataset**
 
-```{r, echo=FALSE} 
+```{r, echo=TRUE} 
 player_df <- select(results_df, player_num:total_pts, player_state:post_rating)
 
-header <- c("Player Num", "Player Name", "Total Points", "Player State",	"USCF ID",	"Pre-Rating",	"Post-Rating")
+```
+
+```{r, echo=FALSE} 
+
+header <- c("Player Num", "Player Name", "&nbsp;&nbsp;Total</br> Points&nbsp;&nbsp;",  
+             "&nbsp;&nbsp;Player</br>State&nbsp;&nbsp;",	
+             "USCF ID",	"&nbsp;&nbsp;Pre-Rating&nbsp;&nbsp;",
+            "&nbsp;&nbsp;Post-Rating&nbsp;&nbsp;")
 
 htmlTable(head(player_df, 10), caption ="Chess Player Information Dataset", header )
 
@@ -240,8 +247,12 @@ player_matches_df <-
     
 # rename pre_rating to opponent_pre_rating
 names(player_matches_df)[names(player_matches_df) == "pre_rating"] <- "opponent_pre_rating"
-    
-header <- c("Player Num",   "Round", "Outcome",
+
+```    
+
+```{r, echo=FALSE} 
+
+header <- c("Player</br>Num",   "&nbsp;&nbsp;Round&nbsp;&nbsp;", "&nbsp;&nbsp;Outcome&nbsp;&nbsp;",
             "Opponent's </br> Player Num",  
             "Opponent's </br> Pre Chess Rating")
 
@@ -258,10 +269,13 @@ player_df <-
     inner_join(player_df, by="player_num") %>%
     select(player_num, player_name, player_state, total_pts,  uscf_id, pre_rating, post_rating, opponents_avg_pre_rating)
 
+```
 
-header <- c("Player Num",   "Player Name", "Player </br> State",
-            "Total </br> Points",  "USCF </br> ID",	   "Pre-Rating",	
-            "Post-Rating", "Opponents' Average </br> Pre Chess Rating")
+```{r, echo=FALSE} 
+
+header <- c("Player</br> Num",   "Player Name", "Player </br> State",
+            "Total </br> Points",  "USCF </br> ID",	   "&nbsp;&nbsp;Pre-Rating&nbsp;&nbsp;",	
+            "&nbsp;&nbsp;Post-Rating&nbsp;&nbsp;", "Opponents' Average </br> Pre Chess Rating")
 
 
 htmlTable(head(player_df, 10), caption = "Example Final Player Result", header)
