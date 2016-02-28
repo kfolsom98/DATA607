@@ -282,7 +282,14 @@ htmlTable(head(player_df, 10), caption = "Example Final Player Result", header)
 
 ``` 
 
-####As the final step, create the output .CSV files: Chess_Players.csv and Chess_Player_Matches.csv.
+###Final Output
+
+Create the output .CSV files: **Chess_Players.csv** and **Chess_Player_Matches.csv**. 
+
+The output files can be found on GitHub:
+
+* [Chess_Players.csv](https://github.com/kfolsom98/DATA607/blob/master/Chess_Players.csv)
+* [Chess_Player_Matches.csv](https://github.com/kfolsom98/DATA607/blob/master/Chess_Player_Matches.csv)
 
 ```{r, echo=TRUE} 
 
@@ -290,3 +297,4 @@ write.csv(player_df, "Chess_Players.csv", row.names=FALSE)
 write.csv(player_matches_df, "Chess_Player_Matches.csv", row.names=FALSE)
 
 ```
+
