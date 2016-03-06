@@ -1,0 +1,193 @@
+---
+title: 'DATA 607: Week 6 Assignment - Tidying and Transforming Data'
+author: "Keith Folsom"
+date: "March 5, 2016"
+output: html_document
+---
+###Assignment Overview
+
+The assignment for Week 6 will consider a wide dataset describing arrival delays for two airlines across five destinations.  The purpose of this assignment is to use the `tidyr` and `dplyr` packages to tidy and transform the flights datatset and perform comparative analysis of the two airlines.
+
+
+###Setup 
+
+The R code for this analysis can be found on GitHub [here](https://github.com/kfolsom98/DATA607) under "Week 6 - Tidying and Transforming Data".  
+
+The flights dataset can also be found on Github as a .CSV file: [Flights Dataset](https://github.com/kfolsom98/DATA607/blob/master/flights.csv)
+
+The following R packages are required for this analysis: 
+
+1. RCurl
+2. knitr
+3. tidyr
+4. dplyr
+5. ggplot2
+
+```{r load packages, echo=FALSE}
+
+suppressPackageStartupMessages(library(RCurl))
+suppressPackageStartupMessages(library(htmlTable))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggplot2))
+
+```
+
+####Load the the airline flight data from GitHub
+
+```{r load csv, eval=TRUE}
+
+URL <- getURL("https://raw.githubusercontent.com/kfolsom98/DATA607/master/flights.csv")
+flights_df <- tbl_df(read.csv(text = URL, header = TRUE))
+
+```
+
+Let's take a look at the raw flights data:
+
+```{r, eval=TRUE, echo=FALSE}
+
+kable(flights_df)
+
+```
+
+####Tidy the dataset using `tidyr`
+
+We see that the flights dataset has five columns for each of the five destination cities.  Convert this to a tidy format using `gather` from the `tidyr`.  
+
+```{r, eval = TRUE, echo=TRUE}
+
+tidy_flights_df <- gather(flights_df, city, total, Los.Angeles:Seattle) %>% 
+                   mutate(city = gsub( "\\.", " ", city)) %>%    
+                   arrange(airline)
+
+#use mutate to replace any "." characters with space in file's column headers containing city names
+
+```
+
+The resulting dataframe now contains a single column for city -- Los Angeles, Phoenix, San Diego, San Franciso, and Seattle.  The total numbers of arrivals and delays can be found in the total column. 
+
+```{r, eval=TRUE, echo=FALSE}
+
+kable(tidy_flights_df)
+
+```
+
+
+####Use `dplyr` to transform the dataset for analysis
+
+With the flights dataset in a more manageable format, create an aggregate view of each airline's total number of delays vs. arrivals.  
+
+```{r flights_aggr, eval=TRUE}
+
+flights_aggr_df <- tidy_flights_df %>% select(airline, status, total) %>% 
+    group_by(airline, status) %>% 
+    summarise(total = sum(total)) %>% 
+    mutate(percent           = round(total/sum(total) * 100, 2),
+           percent_formatted = paste0(round(total/sum(total) * 100, 1), "%"),
+           total_flights     = sum(total)) 
+
+flights_aggr_df <- as.data.frame(flights_aggr_df)
+
+```    
+
+The aggregate numbers look like this:
+
+```{r, echo=FALSE}
+
+kable(select(flights_aggr_df, -percent))
+
+```
+
+**Visualize the airlines aggregate delays versus arrival totals using ggplot2** 
+
+Use gglot2 to visualize, we see that ALASKA Airline has the higher percentage of delayed flights in aggregate.  Also, we see that AM WEST has almost twice as many total flights as compared to ALASKA.
+
+```{r ggplot-flights-aggr, echo=TRUE}
+
+flights_aggr_df %>% filter(status == "delayed") %>%
+    ggplot( aes(x=airline, y=percent, fill=airline)) +
+    geom_bar(stat="identity", position=position_dodge(), colour="black", width = 0.5) +
+    coord_flip() + 
+    ggtitle("Overall Percentage of Flights Delayed by Airline") +
+    xlab("Airline") + ylab("Percentage of Flights Delayed") +
+    geom_text(aes(label=paste(percent_formatted, "\n n =", total_flights)), vjust=0.5, hjust=1.1,color="black")
+
+```
+
+However, this aggregate delayed-flight percentage statistic may not represent the true picture if we consider the destination city in the analysis.  Using `dplyr`, create the analysis above but include the destination city in the calculation.
+
+```{r, echo=TRUE}
+
+flights_by_city_df <- tidy_flights_df %>%
+group_by(airline, city) %>% 
+    mutate(percent = round(total/sum(total)*100, 2),
+           percent_formatted=paste0(round(total/sum(total)*100, 1), "%")) 
+
+flights_by_city_df <- as.data.frame(flights_by_city_df)
+
+```
+
+The result looks like the sample below:
+
+```{r, echo=FALSE}
+
+kable(head(select(flights_by_city_df, -percent), 10))
+
+```
+
+**Visualize each airline's percentage of flight delays for each of the destinations using ggplot2**
+
+```{r bar-graph-flights-city, echo=TRUE}
+
+flights_by_city_df %>% filter(status == "delayed") %>%
+ggplot( aes(x=city, y=percent, fill=airline)) +
+    geom_bar(stat="identity", position=position_dodge(), colour="black") +
+    geom_text(aes(label=percent_formatted), vjust=.5, hjust=1,position= position_dodge(width=0.9),  color="black") +
+        ggtitle("Percentage of Flights Delayed by Airline by City") +
+    xlab("City") + ylab("Percentage of Flights Delayed") +
+        coord_flip() 
+
+```
+
+Or, alternatively, using a Cleveland Plot.  The code for the Cleveland Plot below is based largely on similar plots from Winston Chang's *R Graphics Cookbook*.
+
+
+```{r cleveland-plot-flights-city, echo=TRUE}
+
+flights_by_city_df %>% filter(status == "delayed") %>%
+ggplot( aes(x=percent, y=city)) + 
+    geom_segment(aes(yend=city), xend=0, color='grey50') + 
+    geom_point(size=4, aes(color=airline)) + 
+    geom_text(aes(label=percent_formatted), vjust=-1, hjust=.5,color='black') +
+    scale_color_brewer(palette="Set1", limits=c('ALASKA', 'AM WEST')) + 
+    theme_bw() + 
+     ggtitle("Percentage of Flights Delayed by Airline by City") +
+    xlab("Percentage of Flights Delayed") + ylab("City") +
+    theme(panel.grid.major.y = element_blank(),
+          legend.position=c(1,0.55),
+          legend.justification=c(1,0.5))
+
+```
+
+Based on the graphs above, we see that ALASKA Airline has a consistently lower value for percentage of delayed flights as compared to AM WEST Airline.
+
+If we wanted to programmatically extract the airline with the lowest delayed-flight percentage, this could be done using `dplyr`. 
+
+So, the answer the question, "What airline should be selected for a flight to any one of these cities, assuming the decision is based on the lowest percent-delay value?":
+
+```{r best-airline-dest-city, echo=TRUE}
+
+ flights_by_city_df %>% 
+      filter(status == "delayed") %>% 
+      group_by(city)  %>% 
+      arrange(city, percent) %>%
+      filter(row_number() == 1) %>% 
+      select(airline, city, status, percent_formatted) %>% kable()
+
+```
+
+This output is consistent with the graphs comparing each airline's delayed-flight percentage.
+
+
+
