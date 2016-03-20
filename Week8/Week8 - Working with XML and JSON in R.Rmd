@@ -1,0 +1,218 @@
+---
+title: "DATA 607 Week 8 Assignment - Working with XML and JSON in R"
+author: "Keith Folsom"
+date: "March 19, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Assignment Overview 
+
+This assignment will focus on creating three files -- HTML, XML, and JSON -- to be parsed into R dataframes based on attributes of three selected books of interest.  Using the attributes selected such as title and author, create three files which store the book's information in HTML (using an html table), XML, and JSON formats (e.g.  "books.html", "books.xml", and "books.json").  
+
+The goal of this assignment is to use R code and any R packages of choice to load the information from each of the three sources into separate R data frames.
+
+###Setup 
+
+This assignment requires the following R packages:
+
+* XML
+* RCurl
+* plyr
+* jsonlite
+* knitr
+
+```{r, eval = TRUE, echo = FALSE}
+
+suppressWarnings(suppressMessages(library(XML)))
+suppressWarnings(suppressMessages(library(RCurl)))
+suppressWarnings(suppressMessages(library(plyr)))
+suppressWarnings(suppressMessages(library(jsonlite)))
+suppressWarnings(suppressMessages(library(knitr)))
+
+```
+
+The code for this assignment can be found on GitHub
+
+The three files, `books.html`, `books.xml`, and `books.json`, can be found on GitHub using the link below:
+
+https://github.com/kfolsom98/DATA607/tree/master/Week8/Data
+
+###Parsing HTML
+
+Load the **books.html** file from GitHub:
+
+```{r html}
+
+# HTML file location on GitHub 
+baseURL <- "https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/books.html"
+txt <- getURL(url=baseURL)
+
+```
+
+Below is the structure of the `books.html` information in HTML format. 
+
+![Books HTML table](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/HTML.PNG)
+
+Parse the HTML table using htmlParse and Xpath
+
+```{r}
+xmltext <- htmlParse(txt, asText=TRUE)
+xmltable <- xpathApply(xmltext, "//table//tbody//tr")
+
+# solution used below found on stackoverflow
+# modified code to apply to books.html file
+# http://stackoverflow.com/questions/6427061/parsing-html-tables-using-the-xml-rcurl-r-packages-without-using-the-readhtml
+
+html_books <- as.data.frame(t(sapply(xmltable, function(x)unname(xmlSApply(x, xmlValue))[c(1, 3, 5, 7, 9, 11, 13)])))
+
+```
+
+The resulting dataframe is shown below, but does not include column names.  Additionally, all variables are defined as factors.
+
+```{r, echo = FALSE  }
+
+kable(html_books)
+
+str(html_books)
+```
+
+Apply column names and convert factor variables to characters:
+
+```{r}
+
+colnames(html_books) <- c("Title",	"Authors", "Publisher",	"ISBN",	"Pages", "Topic",	"Language")
+
+# convert the factors to characters
+# http://stackoverflow.com/questions/27528907/how-to-convert-data-frame-column-from-factor-to-numeric
+
+indx <- sapply(html_books, is.factor)
+html_books[indx] <- lapply(html_books[indx], function(x) as.character(x))
+
+html_books$Pages <- as.numeric(html_books$Pages)
+
+```
+
+```{r, echo = FALSE}
+
+kable(html_books)
+
+```
+
+
+###Parsing XML
+
+Load the **books.xml** file from GitHub:
+
+```{r XML}
+
+# XML file location on GitHub 
+baseURL <- "https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/books.xml"
+txt <- getURL(url=baseURL)
+
+```
+
+Below is the structure of the `books.xml` information in XML format. 
+
+![Books XML Structure](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/XML.PNG)
+
+
+### Two Options to parse the XML structure
+
+**1. Parse the XML using xmlParse and dply**
+
+```{r}
+
+xml_books <- xmlParse(txt,  validate = F)
+
+#http://www.informit.com/articles/article.aspx?p=2215520
+books1 <- ldply(xmlToList(txt), data.frame)
+
+str(books1)
+
+```
+This method of parsing the XML includes some additional fields in the resulting dataframe: `.id` and `.attrs`.  These correspond to the book elements in the XML file such as**<book id="1">**.  Convert to a helpful ID field.
+
+The resulting dataframe also contains all factors for the variables such as Title, Authors, Pages, etc.  Convert factors to character variables.
+
+```{r, echo =  FALSE}
+
+names(books1)[names(books1) == ".attrs"] <- "Book.ID"
+books1$Book.ID <- as.numeric(books1$Book.ID)
+
+books1$.id  <- NULL
+
+indx <- sapply(books1, is.factor)
+books1[indx] <- lapply(books1[indx], function(x) as.character(x))
+
+books1$Pages <- as.numeric(books1$Pages)
+
+kable(books1, caption = "Books Dataframe using XML Parsing Option 1")
+
+```
+
+**2. Parse the XML using xmlRoot and using xmlToDataFrame**
+
+This option seems somewhat simpler but does not include the option to include the id attribute from the book element.  As with option 1, The resulting dataframe contains all factors for the variables such as Title, Authors, Pages, etc.  Convert factors to character variables.
+
+```{r}
+
+root <- xmlRoot(xml_books)
+
+books2 <- xmlToDataFrame(root)
+
+str(books2)
+
+```
+
+```{r, echo =  FALSE}
+
+indx <- sapply(books1, is.factor)
+books2[indx] <- lapply(books2[indx], function(x) as.character(x))
+
+books2$Pages <- as.numeric(books2$Pages)
+
+kable(books2, caption = "Books Dataframe using XML Parsing Option 2")
+
+```
+
+###Parsing JSON
+
+Load the **books.json** file from GitHub:
+
+```{r JSON}
+
+# JSON file location on GitHub
+baseURL <- "https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/books.json"
+txt <- getURL(url=baseURL)
+
+```
+
+Below is the structure of the `books.json` information in JSON format. 
+
+![Books JSON Structure](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week8/Data/JSON.PNG)
+
+Parse the JSON file using the `jsonlite` package.
+
+```{r}
+
+json_books <- fromJSON(txt)
+
+str(json_books)
+
+json_books$Pages <- as.numeric(json_books$Pages)
+
+```
+
+In this case, the variables were all loaded as characters instead of factors.  This method using `jsonlite` seemed to be the most straightforward and simplest approach.
+
+The final dataframe looks like:
+
+```{r, echo = FALSE}
+
+kable(json_books)
+
+```
