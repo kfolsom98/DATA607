@@ -2,7 +2,7 @@
 <books>
     <book1>
         <Title>Automated Data Collection with R A practical Guide to Web Scraping and Text Mining</Title>
-        <Authors>Simon Munzert, Christian Rubba, Peter MeiBner, Dominic Nyhuis</Author>
+        <Authors>Simon Munzert, Christian Rubba, Peter MeiBner, Dominic Nyhuis</Authors>
         <Publisher>John Wiley and Sons, Ltd</Publisher>
         <ISBN>978-1118834817</ISBN>
         <Pages>480</Pages>
@@ -11,7 +11,7 @@
     </book1>
     <book2>
         <Title>OpenIntro Statistics Second Edition</Title>
-        <Authors>David M Diez, Christopher D Barr, Mine Cetinkaya-Rundel</Author>
+        <Authors>David M Diez, Christopher D Barr, Mine Cetinkaya-Rundel</Authors>
         <Publisher>CreateSpace Independent Publishing Platform </Publisher>
         <ISBN>978-1478217206</ISBN>
         <Pages>426</Pages>
@@ -20,7 +20,7 @@
     </book2>
     <book3>
         <Title>Doing Bayesian Data Analysis, Second Edition: A Tutorial with R, JAGS, and Stan</Title>
-        <Authors>John Kruschke</Author>
+        <Authors>John Kruschke</Authors>
         <Publisher>Academic Press</Publisher>
         <ISBN>978-0124058880</ISBN>
         <Pages>776</Pages>
