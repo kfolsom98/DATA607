@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<books>
+    <book1>
+        <Title>Automated Data Collection with R A practical Guide to Web Scraping and Text Mining</Title>
+        <Authors>Simon Munzert, Christian Rubba, Peter MeiBner, Dominic Nyhuis</Author>
+        <Publisher>John Wiley and Sons, Ltd</Publisher>
+        <ISBN>978-1118834817</ISBN>
+        <Pages>480</Pages>
+        <Topic>Data Mining</Topic>
+        <Language>English</Language>
+    </book1>
+    <book2>
+        <Title>OpenIntro Statistics Second Edition</Title>
+        <Authors>David M Diez, Christopher D Barr, Mine Cetinkaya-Rundel</Author>
+        <Publisher>CreateSpace Independent Publishing Platform </Publisher>
+        <ISBN>978-1478217206</ISBN>
+        <Pages>426</Pages>
+        <Topic>Probability / Statistics</Topic>
+        <Language>English</Language>
+    </book2>
+    <book3>
+        <Title>Doing Bayesian Data Analysis, Second Edition: A Tutorial with R, JAGS, and Stan</Title>
+        <Authors>John Kruschke</Author>
+        <Publisher>Academic Press</Publisher>
+        <ISBN>978-0124058880</ISBN>
+        <Pages>776</Pages>
+        <Topic>Statistics</Topic>
+        <Language>English</Language>
+    </book3>
+</books>
