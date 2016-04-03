@@ -41,7 +41,7 @@ options(scipen=999)
 
 This assignment will use the New York Times Most Popular API.  This API is described as providing the following:  
 
-*Get links and metadata for the blog posts and articles that are most frequently e-mailed, shared and viewed by NYTimes.com readers.*
+*"Get links and metadata for the blog posts and articles that are most frequently e-mailed, shared and viewed by NYTimes.com readers."*
 
 Anyone wishing to call a NYTimes API must register and requset an API key.  http://developer.nytimes.com/page
 
@@ -53,6 +53,16 @@ nyt_most_popular_api <- "8f268ba14f2142789d55690bc74054f6:18:74856659"
 
 ```
 
+
+#### Key Rate Limits for API calls as specified by the Times Developer Network
+-  8	    Calls per second
+-  5,000	Calls per day
+
+
+#### Construct the Request URI using the Most Popular API.  
+
+This assignment will be issuing a GET for the `Most Viewed` sections.  
+
 Parameters included in the Most Popular API call:
 
 Parameter|  Value        |  Description 
@@ -63,15 +73,6 @@ Parameter|  Value        |  Description
 **offset** |  20             | Number or results returned.  To page through the results, set offset to the appropriate value.
 **api-key** | Registered API Key| API Key provided by Times Developer Network
 
-
-#### Key Rate Limits for API calls as specified by the Times Developer Network
--  8	    Calls per second
--  5,000	Calls per day
-
-
-#### Construct the Request URI using the Most Popular API.  
-
-This assignment will be issuing a GET for the `Most Viewed` sections.  
 
 ```{r most-popular-json, echo = TRUE}
 
@@ -125,7 +126,7 @@ status <-
    select(status)
 
 
-## get the number of resultes
+## get the number of results
 results <- 
     json_raw %>% 
     enter_object("num_results") %>%
@@ -150,9 +151,9 @@ Below is an excerpt of the Response Body to illustrate the json format.
 
 ## Using the tidyjson package to create tidy data.frames in R
 
-A description of the `tidyjson` package on CRAN 
+A description of the `tidyjson` package from CRAN:
 
-The tidyjson package takes an alternate approach to structuring JSON data into tidy data.frames. Similar to tidyr, tidyjson builds a grammar for manipulating JSON into a tidy table structure. Tidyjson is based on the following principles:
+"The tidyjson package takes an alternate approach to structuring JSON data into tidy data.frames. Similar to tidyr, tidyjson builds a grammar for manipulating JSON into a tidy table structure. Tidyjson is based on the following principles:
 
 - Leverage other libraries for efficiently parsing JSON (jsonlite)
 - Integrate with pipelines built on dplyr and the magrittr %>% operator
@@ -160,12 +161,13 @@ The tidyjson package takes an alternate approach to structuring JSON data into t
 - Guarantee a deterministic data.frame column structure
 - Naturally handle 'ragged' arrays and / or objects (varying lengths by document)
 - Allow for extraction of data in values or key names
-- Ensure edge cases are handled correctly (especially empty data)
+- Ensure edge cases are handled correctly (especially empty data)"
 
 
-Using `tidyjson` we can extract key information from the JSON structure using the pipeline operator *%>%*.  In this case, the JSON structure is complex, we'll use the *enter_object()* function to move into a specific object key in the JSON attribute.
+Using `tidyjson` we can extract key information from the JSON structure using the pipeline operator *%>%*.  In this case, the JSON structure is complex, we'll use the *enter_object()* function to move into a specific object key in the JSON attribute.  In this particular case, the "results" object.
 
 ```{r example-tidyjson, echo = TRUE}
+
 
 nyt_most_popular_json <- json_raw %>% as.tbl_json
 
@@ -191,7 +193,7 @@ results <-
 
 ### The Results
 
-*(**Note** - some of the values such as abstract and keywords are not being displayed due to the length of the text.)*
+*(**Note** - some of the extracted values such as abstract and keywords are not displayed below due to the length of the text.)*
 
 ```{r, echo = FALSE}
 
@@ -200,73 +202,102 @@ kable(select(results, -abstract, -keywords, -document.id,  -array.index))
 ```
 
 
-## Use Case - Graph the 100 Most Viewed New York Times Articles by Section 
+## Use Case - Graph the 100 Most Viewed New York Times Articles by Section by Time Period (1, 7, 30 Days) 
 
-For this particular example, use the NY Times Most Popular API to retrieve the 100 most viewed articles for a single day.  This will require using the offset parameter in the API, ranging from 20, 40, ... 100.  
+For this particular example, use the NY Times Most Popular API to retrieve the 100 most viewed articles for a single day, a week, and a month.  This will require using the offset parameter in the API, ranging from 20, 40, ... 100 as well as the time period API parameter.
 
 ```{r}
 
-for (i in 1:5) {
+# ================================================================
+# Function: get_most_viewed
+# ================================================================
+# Parameters: 
+#            1. section default value "all-sections"
+#            2. tim_period: day value of either 1, 7, or 30
+#            3. iterations: provided value * 20 will determine the offset for paging through results
+# Reurn: tbl_json
+# ================================================================
+get_most_viewed <- function(section = "all-sections", time_period = 1, iterations = 1, debug = FALSE) {
 
-    offset <- i * 20
+    for (i in 1:iterations) {
     
-    # construct the URI
-    url_base <- paste0("http://api.nytimes.com/svc/mostpopular/v2/mostviewed/all-sections/1.json?offset=", offset)
-    url      <- paste0(url_base,"&api-key=", nyt_most_popular_api)
-    
-    # Get the first batch of 20 using the the API
-    raw_contents <- GET(url = url)
-    
-    # store the json
-    json_raw <- httr::content(raw_contents, type = "text", encoding = "UTF-8")
-    
-    
-    ## get status
-    json_raw %>% enter_object("status") %>%
-      append_values_string("status") %>% select(status)
+        offset <- i * 20
         
+        # construct the URI
+        uri_base <- paste0("http://api.nytimes.com/svc/mostpopular/v2/mostviewed/all-sections/", time_period)
+        uri_base <- paste0(uri_base, ".json?offset=", offset)
+        uri      <- paste0(uri_base,"&api-key=", nyt_most_popular_api)
+        
+        if (debug) {print(uri)}
+        
+        # Get the first batch of 20 using the the API
+        raw_contents <- GET(url = uri)
+        
+        # store the json
+        json_raw <- httr::content(raw_contents, type = "text", encoding = "UTF-8")
+        
+        
+        ## get status
+        json_raw %>% enter_object("status") %>%
+          append_values_string("status") %>% select(status)
+            
+        ## get the number of resultes
+        results <- 
+            json_raw %>% 
+            enter_object("num_results") %>%
+            append_values_string("num_results") %>% 
+            select(num_results)
 
-    nyt_most_popular_json <- json_raw %>% as.tbl_json
-
-    results <-
-            nyt_most_popular_json %>%
-            enter_object("results") %>%
-            gather_array %>%
-            spread_values(
-                id = jnumber("id"),
-                type = jstring("type"),
-                section = jstring("section"),
-                title = jstring("title"),
-                by = jstring("byline"),
-                url = jstring("url"),
-                keywords = jstring("adx_keywords"),
-                abstract = jstring("abstract"),
-                published_date = jstring("published_date"),
-                source = jstring("source"),
-                views = jnumber("views")
-              )
-
-     # rowbind the results to create one tbl_json object containing the 100 Most Viewed articles
-     # rbindlist requires the data.table package
+        if (debug) {print(status)}
+        if (debug) {print(results)}
     
-     if (i == 1) { 
-          top_100_json <- results
-     } 
-     else {
-          top_100_json <- rbindlist(list(top_100_json, results))
-     }
+        nyt_most_popular_json <- json_raw %>% as.tbl_json
+    
+        results <-
+                nyt_most_popular_json %>%
+                enter_object("results") %>%
+                gather_array %>%
+                spread_values(
+                    id = jnumber("id"),
+                    type = jstring("type"),
+                    section = jstring("section"),
+                    title = jstring("title"),
+                    by = jstring("byline"),
+                    url = jstring("url"),
+                    keywords = jstring("adx_keywords"),
+                    abstract = jstring("abstract"),
+                    published_date = jstring("published_date"),
+                    source = jstring("source"),
+                    views = jnumber("views")
+                  )
+    
+         # rowbind the results to create one tbl_json object containing the 100 Most Viewed articles
+         # rbindlist requires the data.table package
+        
+         if (i == 1) { 
+              results_json <- results
+         } 
+         else {
+              results_json <- rbindlist(list(results_json, results))
+         }
+    
+    
+    }
 
-
+    return (results_json)
 }
-
 
 ```
 
-### Graph the Results
+## Graph the Results
 
-```{r}
+### Most Viewed Articles by Section - One Day
 
-top_100_json %>%
+```{r most-viewed-one-day}
+
+top_100_day_json <- get_most_viewed("all-sections", 1, 5)
+
+top_100_day_json %>%
    group_by(section) %>% 
    tally %>% 
    ggplot(aes(section, n, fill = section)) +
@@ -278,3 +309,38 @@ top_100_json %>%
 
 ```
 
+### Most Viewed Articles by Section - One Week
+
+```{r most-viewed-one-week}
+
+top_100_wk_json <- get_most_viewed("all-sections", 7, 5)
+
+top_100_wk_json %>%
+   group_by(section) %>% 
+   tally %>% 
+   ggplot(aes(section, n, fill = section)) +
+          geom_bar(stat = "identity", position = "stack") +
+          coord_flip()   + theme(legend.position = "none") + 
+    ggtitle("100 Most Viewed NY Times Articles by Section (Week)") +
+    xlab("Section") + ylab("Number of Views") +
+    geom_text(aes(label=n), vjust=0.5, hjust=1.1,color="black")
+
+```
+
+### Most Viewed Articles by Section - One Month
+
+```{r most-viewed-one-month}
+
+top_100_mth_json <- get_most_viewed("all-sections", 30, 5)
+
+top_100_mth_json %>%
+   group_by(section) %>% 
+   tally %>% 
+   ggplot(aes(section, n, fill = section)) +
+          geom_bar(stat = "identity", position = "stack") +
+          coord_flip()   + theme(legend.position = "none") + 
+    ggtitle("100 Most Viewed NY Times Articles by Section (Month)") +
+    xlab("Section") + ylab("Number of Views") +
+    geom_text(aes(label=n), vjust=0.5, hjust=1.1,color="black")
+
+```
