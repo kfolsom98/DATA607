@@ -1,0 +1,280 @@
+---
+title: "DATA 607: Week 10 Assignment - Web APIs"
+author: "Keith Folsom"
+date: "April 3, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Using Web APIs - New York Times
+
+The New York Times web site provides a rich set of APIs, as described here: http://developer.nytimes.com/docs.  
+
+The goal of the Week 10 assignment is to use one of the New York Times APIs, construct an interface in R to read in the JSON data, and transform it to an R dataframe.  
+
+The code for this assignment requires the following R packages:
+
+- httr
+- tidyjson
+- dplyr
+- ggplot2
+- data.table
+- knitr
+
+```{r, echo = FALSE}
+
+suppressWarnings(suppressMessages(library(httr)))
+suppressWarnings(suppressMessages(library(tidyjson)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(knitr)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(data.table)))
+
+options(scipen=999)
+
+```
+
+## New York Times Most Popular API - Most Viewed
+
+This assignment will use the New York Times Most Popular API.  This API is described as providing the following:  
+
+*Get links and metadata for the blog posts and articles that are most frequently e-mailed, shared and viewed by NYTimes.com readers.*
+
+Anyone wishing to call a NYTimes API must register and requset an API key.  http://developer.nytimes.com/page
+
+
+
+```{r most-popular-api, echo = FALSE}
+
+nyt_most_popular_api <- "8f268ba14f2142789d55690bc74054f6:18:74856659"
+
+```
+
+Parameters included in the Most Popular API call:
+
+Parameter|  Value        |  Description 
+---------| --------------| -------------------------------------------------------------------------------------
+**format**   | json          | Response format
+**section**  | all-sections  | Limits the results by one or more sections
+**time-period**| 1           | Corresponds to a day, a week or a month of content
+**offset** |  20             | Number or results returned.  To page through the results, set offset to the appropriate value.
+**api-key** | Registered API Key| API Key provided by Times Developer Network
+
+
+#### Key Rate Limits for API calls as specified by the Times Developer Network
+-  8	    Calls per second
+-  5,000	Calls per day
+
+
+#### Construct the Request URI using the Most Popular API.  
+
+This assignment will be issuing a GET for the `Most Viewed` sections.  
+
+```{r most-popular-json, echo = TRUE}
+
+offset <- 20
+
+# construct the URI
+url_base <- paste0("http://api.nytimes.com/svc/mostpopular/v2/mostviewed/all-sections/1.json?offset=", offset)
+url      <- paste0(url_base,"&api-key=", nyt_most_popular_api)
+
+# Get the first batch of 20 using the the API
+raw_contents <- GET(url = url)
+
+```
+
+The response from the API Call looks like this:
+
+```{r echo = FALSE}
+
+raw_contents
+
+
+```
+
+A 200 value for the status indicates a successful response according to the Times Developer Network Standard Errror Codes.
+
+```{r}
+
+raw_contents$status_code
+
+```
+
+HTTP Response Code |  Description
+-------------------| --------------------------------------------------------------------------------
+200 OK             | Requests successfully understood and processed
+400   Bad Request  |	A required parameter was not specified or your request was otherwise improperly formed. See the body of the error response for more details. (For additional information on required parameters, see the documentation for each API.)
+404 Not Found	 | The resource you requested does not exist.
+500 Server Error    |  	The request was successfully understood, but it could not be processed due to a server error. Please try your request again later, and contact us if the problem continues.
+
+#### Store the response body returned in json format
+
+```{r store-most-popular-json, echo = TRUE}
+
+# store the json
+json_raw <- httr::content(raw_contents, type = "text", encoding = "UTF-8")
+
+## get status
+status <- 
+   json_raw %>% 
+   enter_object("status") %>%
+   append_values_string("status") %>% 
+   select(status)
+
+
+## get the number of resultes
+results <- 
+    json_raw %>% 
+    enter_object("num_results") %>%
+    append_values_string("num_results") %>% 
+    select(num_results)
+
+
+```
+
+Using the Response Body, we can determine the status and the number of results returned from the API call.  
+
+1.  **Status** = `r status`  
+2.  **Num Results** = `r results`
+
+### Understanding the structure of the Most Viewed API json response
+
+Below is an excerpt of the Response Body to illustrate the json format.  
+
+![Books HTML table](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week10/Most_Popular_JSON1.PNG)
+![Books HTML table](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Week10/Most_Popular_JSON2.PNG)
+
+
+## Using the tidyjson package to create tidy data.frames in R
+
+A description of the `tidyjson` package on CRAN 
+
+The tidyjson package takes an alternate approach to structuring JSON data into tidy data.frames. Similar to tidyr, tidyjson builds a grammar for manipulating JSON into a tidy table structure. Tidyjson is based on the following principles:
+
+- Leverage other libraries for efficiently parsing JSON (jsonlite)
+- Integrate with pipelines built on dplyr and the magrittr %>% operator
+- Turn arbitrarily complex and nested JSON into tidy data.frames that can be joined later
+- Guarantee a deterministic data.frame column structure
+- Naturally handle 'ragged' arrays and / or objects (varying lengths by document)
+- Allow for extraction of data in values or key names
+- Ensure edge cases are handled correctly (especially empty data)
+
+
+Using `tidyjson` we can extract key information from the JSON structure using the pipeline operator *%>%*.  In this case, the JSON structure is complex, we'll use the *enter_object()* function to move into a specific object key in the JSON attribute.
+
+```{r example-tidyjson, echo = TRUE}
+
+nyt_most_popular_json <- json_raw %>% as.tbl_json
+
+results <-
+       nyt_most_popular_json %>%
+       enter_object("results") %>%
+       gather_array %>%
+       spread_values(
+            id = jnumber("id"),
+            type = jstring("type"),
+            section = jstring("section"),
+            title = jstring("title"),
+            by = jstring("byline"),
+            url = jstring("url"),
+            keywords = jstring("adx_keywords"),
+            abstract = jstring("abstract"),
+            published_date = jstring("published_date"),
+            source = jstring("source"),
+            views = jnumber("views")
+  )
+
+```
+
+### The Results
+
+*(**Note** - some of the values such as abstract and keywords are not being displayed due to the length of the text.)*
+
+```{r, echo = FALSE}
+
+kable(select(results, -abstract, -keywords, -document.id,  -array.index))
+
+```
+
+
+## Use Case - Graph the 100 Most Viewed New York Times Articles by Section 
+
+For this particular example, use the NY Times Most Popular API to retrieve the 100 most viewed articles for a single day.  This will require using the offset parameter in the API, ranging from 20, 40, ... 100.  
+
+```{r}
+
+for (i in 1:5) {
+
+    offset <- i * 20
+    
+    # construct the URI
+    url_base <- paste0("http://api.nytimes.com/svc/mostpopular/v2/mostviewed/all-sections/1.json?offset=", offset)
+    url      <- paste0(url_base,"&api-key=", nyt_most_popular_api)
+    
+    # Get the first batch of 20 using the the API
+    raw_contents <- GET(url = url)
+    
+    # store the json
+    json_raw <- httr::content(raw_contents, type = "text", encoding = "UTF-8")
+    
+    
+    ## get status
+    json_raw %>% enter_object("status") %>%
+      append_values_string("status") %>% select(status)
+        
+
+    nyt_most_popular_json <- json_raw %>% as.tbl_json
+
+    results <-
+            nyt_most_popular_json %>%
+            enter_object("results") %>%
+            gather_array %>%
+            spread_values(
+                id = jnumber("id"),
+                type = jstring("type"),
+                section = jstring("section"),
+                title = jstring("title"),
+                by = jstring("byline"),
+                url = jstring("url"),
+                keywords = jstring("adx_keywords"),
+                abstract = jstring("abstract"),
+                published_date = jstring("published_date"),
+                source = jstring("source"),
+                views = jnumber("views")
+              )
+
+     # rowbind the results to create one tbl_json object containing the 100 Most Viewed articles
+     # rbindlist requires the data.table package
+    
+     if (i == 1) { 
+          top_100_json <- results
+     } 
+     else {
+          top_100_json <- rbindlist(list(top_100_json, results))
+     }
+
+
+}
+
+
+```
+
+### Graph the Results
+
+```{r}
+
+top_100_json %>%
+   group_by(section) %>% 
+   tally %>% 
+   ggplot(aes(section, n, fill = section)) +
+          geom_bar(stat = "identity", position = "stack") +
+          coord_flip()   + theme(legend.position = "none") + 
+    ggtitle("100 Most Viewed NY Times Articles by Section (Single Day)") +
+    xlab("Section") + ylab("Number of Views") +
+    geom_text(aes(label=n), vjust=0.5, hjust=1.1,color="black")
+
+```
+
