@@ -1,0 +1,381 @@
+---
+title: 'DATA 607: Week 11 Assignment - Document Classification'
+author: "Keith Folsom"
+date: "April 6, 2016"
+output: html_document
+---
+
+
+## Document Classification using quanteda and k-Nearest Neighbor (kNN) 
+
+This assignment will start with a spam/ham dataset, then predict the class of new documents withheld from the training dataset.   
+
+The corpus for this analysis is located here:  https://spamassassin.apache.org/publiccorpus/
+
+The code for this assignment requires the following R packages:
+
+- downloader
+- R.utils
+- quanteda
+- tm
+- plyr
+- class
+- stringi
+- knitr
+
+This analysis heavily uses the `quanteda` package in R.  Information on the quanteda package can be found here:
+
+https://cran.r-project.org/web/packages/quanteda/vignettes/quickstart.html
+
+**quanteda Package Introduction**
+
+"quanteda makes it easy to manage texts in the form of a corpus, defined as a collection of texts that includes document-level variables specific to each text, as well as meta-data for documents and for the collection as a whole. quanteda includes tools to make it easy and fast to manuipulate the texts in a corpus, by performing the most common natural language processing tasks simply and quickly, such as tokenizing, stemming, or forming ngrams. quanteda's functions for tokenizing texts and forming multiple tokenized documents into a document-feature matrix are both extremely fast and extremely simple to use. quanteda can segment texts easily by words, paragraphs, sentences, or even user-supplied delimiters and tags."
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+options(stringsAsFactors = FALSE)
+
+suppressWarnings(suppressMessages(library(downloader)))
+suppressWarnings(suppressMessages(library(R.utils)))
+suppressWarnings(suppressMessages(library(quanteda)))
+
+suppressWarnings(suppressMessages(library(tm)))
+suppressWarnings(suppressMessages(library(plyr)))
+suppressWarnings(suppressMessages(library(class)))
+suppressWarnings(suppressMessages(library(stringi)))
+suppressWarnings(suppressMessages(library(knitr)))
+
+# download the ham and spam bz2 files to the working directory
+# if executing this code, be sure to set your working directory prior
+
+setwd("~/DataScience/CUNY/DATA607/Weekly_Assignments/Week11/data")
+
+#https://spamassassin.apache.org/publiccorpus/
+
+# location of the easy_ham tar file
+
+URL <- "https://spamassassin.apache.org/publiccorpus/"
+
+files <- c("20021010_easy_ham.tar.bz2", 
+           "20021010_spam.tar.bz2", 
+           "20021010_hard_ham.tar.bz2", 
+           "20030228_spam_2.tar.bz2")
+
+
+```
+
+Functions used throughout the analysis:
+
+```{r functions}
+
+# =========================================================================
+# Function: download_and_untar
+# =========================================================================
+# Description: 
+#              Function downloads the specified bz2 spam or ham file
+#              on https://spamassassin.apache.org/publiccorpus.
+#              Once downloaded to the local compute, the files are
+#              bunzipped and untarred
+# 
+# Parameters: 
+#            1. name of the filename to download from the public corpus
+#            2. boolean whether the file should be downloaded only; 
+#               default = FALSE
+#
+# Reurn: N/A
+# =========================================================================
+download_and_untar <- function(filename, downloadOnly = FALSE) {
+    
+        # download the specified files from 
+        # https://spamassassin.apache.org/publiccorpus 
+        downloader::download(url = paste0(URL, filename), filename )
+        
+        tar.file <- stri_replace_all_regex(filename, ".bz2", "")
+    
+        if (!downloadOnly) {
+            
+           # bunzip2 the file    
+           bunzip2(filename, tar.file, remove = FALSE, skip = TRUE)
+           
+           # untar the file     
+           untar(tar.file, exdir = ".")
+        
+           # remove the tar file
+           if (file.exists(tar.file)) file.remove(tar.file)
+        
+        }
+}
+
+# =========================================================================
+# Function: createCorpus
+# =========================================================================
+# Description: 
+#              Uses the tm package vCorpus object to convert a corpus into 
+#              a quanteda corpus.
+# 
+# Parameters: 
+#            1. directory location of the files to be used in the corpus
+#            2. type of email- spam or ham.  This value is set as a 
+#               docvar on the corpus
+# Reurn: corpus (quanteda)
+# =========================================================================
+createCorpus <- function(directory, emailType) {
+    
+    quantCorpus <- corpus(Corpus(DirSource(directory = directory, encoding = "UTF-8"), 
+                                    readerControl = list(language="en_US")),
+                      notes=emailType)
+    
+    docvars(quantCorpus, "email_type") <- emailType
+    docvars(quantCorpus, "source")     <- stri_replace_all_regex(directory, "./", "")
+    
+    return(quantCorpus)
+    
+}
+
+# =========================================================================
+# Function: buildDFM
+# =========================================================================
+# Description: 
+#              Accepts a corpus object and converts to a document-feature
+#              matrix (dfm).
+# 
+# Parameters: 
+#            1. the corpus to convert to a dfm
+#            2. minDoc value 
+#            3. minCount value 
+#
+# Reurn: dfm (document-feature matrix)
+# =========================================================================
+buildDFM <- function(corpus, minDoc, minCount) {
+    # create the document-feature matrix
+    
+    # dfm = document-feature matrix
+    dfm <- dfm(corpus, ignoredFeatures = stopwords("english"), stem = TRUE)
+
+    dfm <- trim(dfm, minDoc = minDoc, minCount = minCount)
+    
+    return(dfm)
+    
+}
+
+plotDFM <- function(dfm) {
+    
+    # plot in colors with some additional options passed to wordcloud
+    plot(dfm, random.color = TRUE, rot.per = .25, colors = sample(colors()[2:128], 5))
+    
+}
+
+# =========================================================================
+# Function: create_df_matrix
+# =========================================================================
+# Description: 
+#              Accepts a dfm object, applies the td-idf function, and
+#              returns a dataframe
+#
+#    tfidf computes term frequency-inverse document frequency weighting. 
+#    The default is not to normalize term frequency # #   (by computing relative term frequency 
+#    within document) but this will be performed if normalize = TRUE.
+# 
+# Parameters: 
+#            1. dfm to process
+#            2. tpye of email - spam or ham
+#
+# Reurn: dataframe
+# =========================================================================
+create_df_matrix <- function(dfm, emailType) {
+    
+    # apply the tfidf function
+    mat <- data.matrix(tfidf(dfm))
+ 
+    # convert to a dataframe
+    df <- as.data.frame(mat, stringsAsFactors =  FALSE)
+    df$Source <- emailType
+    
+    return(df)
+}
+
+
+
+```
+
+### 1. Download and Create the Spam and Ham Corpuses
+
+The following sets of files are used as input into the document classification.  The files are classified either as 1.) Ham which is email that is generally desired to be received or 2.) Spam which is typically unsolicited email, generated in bulk and is generally unwanted by the recipient.
+
+Filename |  Type
+---------| ---------------
+20021010_easy_ham.tar.bz2 | Ham
+20021010_spam.tar.bz2  | Spam
+20021010_hard_ham.tar.bz2 |  Ham
+20030228_spam_2.tar.bz2 | Spam
+
+```{r}
+
+# use lapply to download and untar all files specified
+lapply(files, download_and_untar)
+
+```
+
+### 2. Create the Spam Corpus
+
+Create the Spam Corpus by combining the files found in the  `spam` and `spam_2` compressed file downloads from the spamassassin public corpus.
+
+```{r}
+
+########### SPAM ###############
+
+spamCorpus <- createCorpus("./spam", "spam")
+spam2Corpus <- createCorpus("./spam_2", "spam")
+
+#combine the 2 Spam corpora 
+spamCorpusCombined <- spamCorpus + spam2Corpus
+
+```
+
+Let's look at the combined Spam corpus using the `summary` function:
+
+```{r, echo = FALSE}
+
+# summarize the combined corpus
+summary(spamCorpusCombined, 20)
+
+```
+
+#### 2.1 Build the document-feature matrix using the Spam corpus
+
+```{r}
+
+dfmSpam <- buildDFM(spamCorpusCombined, round(length(docnames(spamCorpusCombined))/10), 50)
+
+
+dim(dfmSpam)              # basic dimensions of the dfm
+
+topfeatures(dfmSpam, 20)  # top features of the spam dfm
+
+plot(topfeatures(dfmSpam, 100), log = "y", cex = .6, ylab = "Term frequency", main = "Top Features of Spam")
+
+```
+
+**Workcloud of the top 100 Spam features or words:**
+
+```{r, echo = FALSE}
+
+plotDFM(dfmSpam[, 1:100])
+
+```
+
+
+### 3.  Create the Ham Corpus 
+
+Create the Ham Corpus by combining the files found in the  `easy_ham` and `hard_ham` compressed file downloads from the spamassassin public corpus.
+
+```{r}
+
+########### HAM ###############
+
+hamCorpus <- createCorpus("./easy_ham", "ham")
+ham2Corpus <- createCorpus("./hard_ham", "ham")
+
+
+#combine the 2 ham corpa 
+hamCorpusCombined <- hamCorpus + ham2Corpus
+
+```
+
+The summary of the Ham Corpus:
+
+```{r, echo = FALSE}
+
+# summarize the combined corpus
+summary(hamCorpusCombined, 20)
+
+```
+
+#### 3.1 Build the document-feature matrix (dfm) using the Ham corpus.  
+
+```{r}
+dfmHam <- buildDFM(hamCorpusCombined, round(length(docnames(hamCorpusCombined))/10), 50)
+
+dim(dfmHam)
+
+plot(topfeatures(dfmHam, 100), log = "y", cex = .6, ylab = "Term frequency", main = "Top Features of Ham")
+
+```
+
+Workcloud of the top 100 Ham features or words:
+
+```{r, echo = FALSE}
+
+plotDFM(dfmHam[, 1:100])
+
+```
+
+### 4. Build the k-Nearest Neighbor Model for Document Classification
+
+Apply the `tdidf` function the Spam and Ham dfm objects to create a matrix of word frequencies.  These two matrices are combined using `rbind.fill` from the plyr package.
+
+```{r}
+
+dfSpam <- create_df_matrix(dfmSpam, "spam")  
+
+dfHam <- create_df_matrix(dfmHam, "ham")  
+
+stacked.df <- rbind.fill(dfSpam, dfHam)
+
+# set NA values to 0
+stacked.df[is.na(stacked.df)] <- 0
+
+
+```
+
+This script is based on Timothy DAuria's YouTube tutorial "How to Build a Text Mining, Machine Learning Document Classification #System in R!" (https://www.youtube.com/watch?v=j1V2McKbkLo).
+
+```{r}
+
+## Create the training and test datasets 
+
+train.idx <- sample(nrow(stacked.df), ceiling(nrow(stacked.df) * 0.7))
+test.idx <- (1:nrow(stacked.df)) [-train.idx]
+
+length(train.idx)  # 
+length(test.idx)
+
+tdm.email <- stacked.df[, "Source"]
+stacked.nl <- stacked.df[, !colnames(stacked.df) %in% "Source"]  #stacked.nl
+
+```
+
+Run the kNN prediction using the training and test datasets
+
+```{r}
+knn.pred <- knn(stacked.nl[train.idx, ], stacked.nl[test.idx, ], tdm.email[train.idx])
+
+```
+
+The resulting Confusion Matrix:
+
+```{r}
+conf.mat <- table("Predictions" = knn.pred, Actual = tdm.email[test.idx])
+
+```
+
+```{r, echo = FALSE}
+
+conf.mat
+
+```
+
+**The accuracy of the model** = `r (accuracy <- sum(diag(conf.mat)) /  length(test.idx) * 100 )`
+
+
+```{r, eval = FALSE}
+
+# To output the predictions 
+
+df.pred <- cbind(knn.pred, stacked.nl[test.idx, ])
+
+```
+
+
