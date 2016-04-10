@@ -1,7 +1,0 @@
-name: Publish Document
-account: rpubs
-server: rpubs.com
-bundleId:
-        https://api.rpubs.com/api/v1/document/154594/7bb2d3540afd4c42973b0c6894db3bfe
-url: http://rpubs.com/kfolsom98/154594
-when: 1456076284.39688
