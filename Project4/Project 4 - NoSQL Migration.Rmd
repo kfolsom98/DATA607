@@ -1,0 +1,384 @@
+---
+title: "DATA 607: Project 4 - NoSQL Migration"
+author: "Keith Folsom"
+date: "April 15, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Project 4 will focus on extracting data from a relational database and migrating the information to a NoSQL database.  This project will use Neo4j as the NoSQL database.  
+
+Project requirements:
+
+- For the relational database, options include using the flights database, the tb database, the "data skills" database created for DATA 607 Project 3, or another database of your own choosing or creation.
+
+- For the NoSQL database, options include using MongoDB, Neo4j, or another NoSQL database of your choosing.
+
+- The migration process needs to be reproducible.  R code is encouraged, but not required.  
+
+- Briefly describe the advantages and disadvantages of storing the data in a relational database vs. a NoSQL database.
+
+
+The code for this project requires the following R packages:
+
+- RMySQL
+- RNeo4j
+- knitr
+
+Additionally, to run this migration, the default Neo4j graphdb will need to be installed and running on your local machine.  
+
+
+```{r env_setup, echo = FALSE}
+suppressWarnings(suppressMessages(library(RMySQL)))
+suppressWarnings(suppressMessages(library(RNeo4j)))
+suppressWarnings(suppressMessages(library(knitr)))
+
+
+# MySQL DB info
+proj_user <- "project3"
+proj_pwd  <- "CUNYRBridge4"
+proj_db   <- "skill"
+proj_host <- "db4free.net"
+
+```
+
+## Source Data - MySQL Skill Database
+
+The source of the relational data used in this NoSQL migration will be the skill database located on the cloud MySQL database (https://www.db4free.net/) created by the team for DATA 607 Project 3.
+
+![skill ERD](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Project4/skill db schema.png)
+
+Table and view data will be extracted from the cloud MySQL skill database using the function below:
+
+```{r}
+
+## ------------------------------------------
+## Using RMYSQL
+## ------------------------------------------
+
+get_mySQL_data <- function(object_name) {
+    
+    # establish the connection to the skill DB on db4free.net
+    skilldb = dbConnect(MySQL(), user=proj_user, password=proj_pwd, dbname=proj_db, host=proj_host)
+    
+    skilldb.data <- dbGetQuery(skilldb, paste0("select * from ", object_name))
+    
+    #close the connection
+    dbDisconnect(skilldb)
+    
+    return (skilldb.data)
+    
+}
+
+
+```
+
+The table named `tbl_data` will be the source of the data being used in this project.  
+
+```{r}
+
+skill.data <- get_mySQL_data("tbl_data")
+
+```
+![Structure of tbl_data](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Project4/tbl_data.PNG)
+
+### Data Dictionary for the Table Tbl_Data
+
+Column Name |  Description
+-------------------| --------------------------------------------------------------------------------
+skill_type_id           | Unique ID identifying a skill type
+skill_set_id  |	Unique ID identifying a skill set
+`skill_id`	 | Unique ID identifying a skill   (UK = skill_id and source_id)
+`source_id`  |  	Unique ID identifying a source (UK = skill_id and source_id)
+skill_type_name   |  Highest level of classification of a skill.  1 of 5 values defined in the model -- business, communication, math, programming, visualization
+skill_set_name   |  Mid-level classification of a skill.  1 of 32 values defined in the model.  Examples: General Programming, Object-Oriented Programming, Relational Databases, Creative Thinking
+skill_name   |  Skill name - the lowest level of skill classification.  1 of 122 skills defined in the skill db model.
+source_name   |  Source name - Kaggle, Google, RJMetrics, Indeed
+rating   |  Rating value associated with the source
+rating_scalar   |  	Skill's normalized rating
+weighted_rating_overall   |  	Skill's weighted ranking overall
+weighted_rating_by_skill_type   |  Skill's weighted ranking within the skill type
+weighted_rating_by_skill_set   |  Skill's weighted ranking within the skill set
+
+
+```{r, echo = FALSE}
+
+str(skill.data)
+
+kable(head(skill.data, 15))
+
+```
+
+## Migration to Neo4j
+
+The following section migrates the skill data found in the Project 3 MySQL database to Neo4j. The default Neo4j graphdb will need to be running locally.  Additionally, this code requires the RNeo4j package in R.
+
+### MySQL-Neo4j Migration Code - 1
+
+The code below creates the following nodes in Neo4j based on the skill data sourced from MySQL:
+- Source
+- Skill
+- SkillSet
+- SkillType
+
+In the MySQL database, a hierarchy exists between a skill, skill set, and skill type:  
+
+    skill -> skill set -> skill type
+
+where skill type is the top level classification.
+
+In the Neo4j graph database below, a relationship is created from skill --> skill set and skill --> skill type.  This has been done to capture the weighted rating values as a property of the relationship between the Skill and SkillSet nodes and the Skill and SKillType nodes.
+
+```{r}
+
+graph = startGraph("http://localhost:7474/db/data", username = "neo4j", password = "data607")
+
+# This statement will delete all contents from the connnected Neo4j database
+clear(graph, input = F)
+
+# Add constraints
+
+addConstraint(graph, "Source", "name")
+addConstraint(graph, "SkillSet", "name")
+addConstraint(graph, "SkillType", "name")
+
+
+# Use CQL (Cypher Query Language) to create the following nodes: Source, Skill, Skillset, and Skilltype
+# Store the scalar rating value as a Skill property
+# 
+
+# Relationships
+# 1.) A Skill is extracted from a Source
+# 2.) A skill is part of a Skillset
+# 3.) A skill rolls up to a skilltype
+
+query = "
+        CREATE (skill:Skill {name: {SkillName} })
+           SET skill.ScalarRating = TOINT({RatingScalar})
+        
+        MERGE (source:Source {name: {Source} })
+        CREATE (skill)-[e:EXTRACTED_FROM]->(source)
+        
+        SET e.rating = TOFLOAT({Rating})
+        
+        MERGE (skillset:Skillset {name: {SkillsetName} })
+        MERGE (skilltype:Skilltype {name: {SkilltypeName} })
+        
+        CREATE (skill)-[i:IS_PART_OF]->(skillset)
+        
+        SET i.rating = TOFLOAT({RatingWeightedBySkillset})
+        
+        CREATE (skill)-[r:ROLLS_UP_TO]->(skilltype)
+        SET r.rating = TOFLOAT({RatingWeightedBySkilltype})
+
+"
+
+# Open a new transaction 
+tx = newTransaction(graph)
+
+# Pass the contents of the skill.data dataframe to query above using RNeo4j appendCypher
+for(i in 1:nrow(skill.data)) {
+    row = skill.data[i, ]
+    
+    appendCypher(tx, query,
+                 SkillName=row$skill_name,
+                 Rating=row$rating,
+                 RatingScalar=row$rating_scalar,
+                 RatingWeightedOverall=row$weighted_rating_overall,
+                 Source=row$source_name,
+                 SkillsetName=row$skill_set_name,
+                 SkilltypeName=row$skill_type_name,
+                 RatingWeightedBySkilltype=row$weighted_rating_by_skill_type,
+                 RatingWeightedBySkillset=row$weighted_rating_by_skill_set)
+}
+
+# Commit
+commit(tx)
+
+summary(graph)
+
+```
+
+The resulting graph database looks like this (not all nodes are shown):
+
+![Neo4j Graph DB](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Project4/Neo4j2.PNG)
+
+Based on the skill ratings created in the MySQL skill database, we know that **machine learning** is rated the highest skill.
+
+```{r}
+
+top10.skills <- get_mySQL_data("vw_top10_skills_overall")
+
+```
+
+```{r, echo = FALSE}
+kable(top10.skills)
+```
+
+In Neo4j, issue the following CQL statement to selecting the nodes and relationships associated with the machine learning Skill node: 
+
+
+**MATCH (n:Skill {name:'machine learning'})-[r]->() RETURN r**
+
+The graph looks like:
+
+![Machine Learning Graph](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Project4/Neo4j_Machine_Learning.PNG)
+
+
+### MySQL-Neo4j Migration Code - 2
+
+An initial attempt at the Neo4j migration is shown below using more of the RNeo4j package.  Although the code created the nodes and relationships, it proved to be significantly slower and less clear than the Cypher code above.  Migration code 1 was preferred over the approach below.
+
+```{r, eval = FALSE}
+
+# load the MySQL tables into separate dataframes for migrating into Neo4j
+
+source         <- get_mySQL_data("tbl_source")
+skillset.list  <- get_mySQL_data("tbl_skill_set")
+skilltype.list <- get_mySQL_data("tbl_skill_type")
+weighted_skills_by_source <- get_mySQL_data("tbl_data")
+
+# source 
+for (i in 1:nrow(source)) {
+    
+    createNode(graph, "Source",  name=source$source_name[i], id=source$source_id[i])
+}
+
+
+# skillset 
+for (i in 1:nrow(skillset.list)) {
+    
+    createNode(graph, "SkillSet", name=skillset.list$skill_set_name[i], id=skillset.list$skill_set_id[i])
+}
+
+# skilltype
+for (i in 1:nrow(skilltype.list)) {
+    
+    createNode(graph, "SkillType", name = skilltype.list$skill_type_name[i], id = skilltype.list$skill_type_id[i])
+}
+
+sourceNodeQuery <- "MATCH (src:Source {name:{name}}) RETURN src"
+
+skillsetNodeQuery <- "MATCH (sk:SkillSet {name:{name}}) RETURN sk"
+
+skilltypeNodeQuery <- "MATCH (st:SkillType {name:{name}}) RETURN st"
+
+for (i in 1:nrow(weighted_skills_by_source)) {
+    
+    skillNode <- createNode(graph, "Skill", 
+                    name= weighted_skills_by_source$skill_name[i], 
+                    id= weighted_skills_by_source$unique_id[i],
+                    sourceID = weighted_skills_by_source$source_id[i],
+                    skillID = weighted_skills_by_source$skill_id[i],
+                    skillSetID = weighted_skills_by_source$skill_set_id[i],
+                    skillTypeID = weighted_skills_by_source$skill_set_id[i]
+                    )
+    
+    # find the source Node Name to create a relationship to in the next step
+    sourceNode <- getSingleNode(graph, sourceNodeQuery, name=weighted_skills_by_source$source_name[i])
+
+    # create the relationship between the skill and the source
+    createRel(skillNode, "EXTRACTED FROM", sourceNode, rating = weighted_skills_by_source$rating[i])
+   
+    
+    # find the skillset Node Name to create a relationship to in the next step
+    skillsetNode <- getSingleNode(graph, skillsetNodeQuery, name=weighted_skills_by_source$skill_set_name[i])           
+
+    # create the relationship between the skill and the source
+    createRel(skillNode, "IS PART OF", skillsetNode, skillset_rating = weighted_skills_by_source$weighted_rating_by_skill_set[i])
+   
+    # find the skillset Node Name to create a relationship to in the next step
+    skilltypeNode <- getSingleNode(graph, skilltypeNodeQuery, name=weighted_skills_by_source$skill_type_name[i])           
+
+    # create the relationship between the skill and the source
+    createRel(skillNode, "ROLLS UP TO", skilltypeNode, skilltype_rating = weighted_skills_by_source$weighted_rating_by_skill_type[i])
+   
+    
+}
+
+```
+
+## Comparison - Querying Neo4j vs. MySQL
+
+Several Top N views were created in the MySQL skill database as part of Project 3.  Using these SQL-based Top N views, create comparable CQL queries against the Neo4j graph database.
+
+**1. Top 10 Skills**
+
+```{r}
+
+# MySQL
+get_mySQL_data("vw_top10_skills_overall")
+
+
+# Neo4j
+query = "MATCH (s:Skill) 
+         RETURN s.name as skill_name, SUM(s.ScalarRating) AS rating ORDER BY rating DESC LIMIT 10  "
+
+cypher(graph, query)
+
+```
+
+**2. Top 10 Skill Sets Overall**
+
+
+```{r}
+
+# MySQL
+get_mySQL_data("vw_top10_skill_sets_overall")
+
+# Neo4j
+query = "MATCH (s:Skill)-[r:`IS_PART_OF`]->(ss:Skillset) 
+         RETURN ss.name as skill_set_name, SUM(s.ScalarRating) AS rating ORDER BY rating DESC LIMIT 10"
+
+cypher(graph, query)
+
+```
+
+**3. Top 5 Skill Sets by Skill Type**
+
+```{r}
+
+# MySQL
+get_mySQL_data("vw_top5_skill_sets_by_skill_type")
+
+# Neo4j
+query = "MATCH (s:Skill)-[r:`IS_PART_OF`]->(ss:Skillset)
+         OPTIONAL MATCH (s:Skill)-[r2:ROLLS_UP_TO]->(st:Skilltype)
+         RETURN st.name as skill_type_name, ss.name as skill_set_name, SUM(s.ScalarRating) AS rating 
+         ORDER BY st.name, rating desc"
+
+
+cypher(graph, query)
+
+```
+
+
+**4. Top 10 Skills by Source**
+
+```{r}
+
+# MySQL
+get_mySQL_data("vw_top10_skills_by_source")
+
+# Neo4j
+query = "MATCH (s:Skill)-[r:EXTRACTED_FROM]->(src:Source)
+         RETURN src.name as source_name, s.name as skill_name, SUM(s.ScalarRating) AS rating 
+         ORDER BY src.name, rating desc"
+
+
+cypher(graph, query)
+
+```
+
+**Note** - Aggregation seems relatively straight-forward using CQL and Neo4j.  However, I did encounter some challenges recreating SQL ranking functions such as a rank number within a group.  For examples #3 and #4 above, I could not find a way to rank using CQL, very possibly due to limited experience with CQL as a query language.
+
+
+## Conclusion - Neo4j vs. MySQL
+
+Having been new to Neo4j at the beginning of this project, one immediate disadvantage appeared to be the learning curve associated with simply using a NoSQL database. Relational databases and SQL are much more familiar in terms of usage and language features and constructs.  However, NoSQL databases seem to be much better at describing, using, and leveraging relationships between entities (nodes) for analysis. Visualizing data as a graph with NoSQL is a standard feature, unlike relational, databases which is valuable.
+
