@@ -1,0 +1,1609 @@
+---
+title: 'DATA 607: Final Project'
+author: "Dan Brooks, Keith Folsom"
+date: "May 11, 2016"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: false
+    theme: united 
+    highlight: tango
+    code_folding: hide
+        
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Predicting March Madness
+
+##Overview
+
+This project attempts to choose the top 8 teams in the NCAA division 1 basketball tournament. This will be accomplished by utlizing machine learning packages available in R. Two different approaches will be used to predict the top 8 teams:
+
+1. Using defensive teams statistics combined with an overall ranking based on strength of schedule
+
+    + The response variable will be the ranking of the teams. This ranking is calculated based off of each team's performance throughout the entire year. The best team will have a value of 1, ranging up to a value of 351 for the worst team. The explanatory variables considered will be the defensive statistics that have been collected for each team over multiple years.
+
+2. Using offensive team statistics with a ranking system based on NCAA Tournament success
+
+    + The response variable will be a ranking value based on a team's success in the NCAA Tournament. The team winning the NCAA Tournament will receive the most points with 64, down to 1 point for participating in the Round of 64. The explanatory variables considered in this approach will be the offensive statistics that have been collected for each team over multiple years. 
+     
+Season averages will be used instead of game by game statistics in this project. There is a total of 10 year's worth of data from 2006 - 2015. The training data will based on the seasons from 2006 - 2014, while the test data will be based on the 2015 season.     
+     
+Three models will be used to predict the ranks of the teams per method:
+     
+1. Defensive Method
+    + Model Tree
+    + Decision Tree
+    + KNN (K-Nearest Neighbor)
+ 
+2. Offensive Method
+    + KNN (K-Nearest Neighbor)
+    + SVM (Support Vector Machine)
+    + Random Forest
+
+
+The R packages required for this project are:
+    
+  * RCurl
+  * dplyr
+  * stringr
+  * RMySQL 
+  * XML
+  * kernlab   
+  * RWeka   
+  * C50
+  * class
+  * splitstackshape
+  * htmltab
+  * rvest
+  * knitr
+  * tidyr
+  * caret
+  
+  
+```{r Libraries, include = FALSE}
+libs <- c("RCurl", "dplyr", "stringr", "RMySQL", "XML", "htmltab", "rvest", "knitr", "tidyr")
+lapply(libs, library, character.only = TRUE)
+
+options(stringsAsFactors = FALSE, warn = -1)
+
+# MySQL DB info
+proj_user <- "bbmetric"
+proj_pwd  <- "W7+2Rdw"
+proj_db   <- "bbmetric"
+proj_host <- "db4free.net"
+
+
+```
+
+
+#Data Sources
+
+
+##College Basketball Season and Division Data - GitHub
+
+
+The team data for this project was collected off of Github. The Github account had all of the games played by every Division 1, 2, and 3 game for the 2002 through 2015 basketball season. The same Github repository also has the divisions for all of the teams plus game data for each season.
+
+The GitHub repository can be found [here](https://github.com/octonion/basketball/tree/master/ncaa) with CSV files for:
+
+* Games by Season from 2007 - 2016
+
+* Schools By Division
+
+
+##Team Statistics - www.teamrankings.com
+
+All of the statistics relating to the college basketball teams were web scraped from [teamrankings.com](https://www.teamrankings.com/ncb/stats/). Team statistics for seasons from 2006 to 2015 where extracted from this site and ultimately stored in a cloud MySQL database. 
+
+
+Statistics across the following 14 categories were captured and combined for each team per season:
+
+  * Scoring
+  * Shooting
+  * Rebounding
+  * Blocks & Steals
+  * Assists & Turnovers
+  * Fouls
+  * Scoring Defense
+  * Shooting Defense
+  * Opponent Rebounding
+  * Opponent Block & Steals
+  * Opponent Assists & Turnovers
+  * Opponent Fouls
+  * Other
+  * Winning Percentage
+
+![TeamRankings](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Final-Project/images/TeamRankings.PNG)
+
+##NCAA Tournament Results  
+
+The teams reaching the variaous brackets within the NCAA Tournament are needed for the offensive modeling approach.  This data was collected from two sites.
+
+###CBS Sports
+
+http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear  
+
+Year | URL      
+-----|-----------------------------------------------------------------------------------  
+2007 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2007  
+2008 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2008  
+2009 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2009  
+2010 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2010  
+2011 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2011  
+2012 | http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear/2012    
+
+
+###Wikipedia 
+
+NCAA Men's Division Basketball Tournament
+
+Year | URL      
+-----|-----------------------------------------------------------------------------------  
+2013|https://en.wikipedia.org/wiki/2013_NCAA_Men%27s_Division_I_Basketball_Tournament
+2014|https://en.wikipedia.org/wiki/2014_NCAA_Men%27s_Division_I_Basketball_Tournament
+2015|https://en.wikipedia.org/wiki/2015_NCAA_Men%27s_Division_I_Basketball_Tournament
+2016|https://en.wikipedia.org/wiki/2016_NCAA_Men%27s_Division_I_Basketball_Tournament
+
+
+#Data Collection and Preparation
+
+
+```{r Get_Data, eval = FALSE, include = FALSE}
+
+url06 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2007.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url07 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2008.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url08 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2009.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url09 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2010.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url10 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2011.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url11 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2012.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url12 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2013.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url13 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2014.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url14 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2015.csv?_sm_au_=iVV74j0ssPFMPPHf"
+url15 <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/ncaa_games_2016.csv?_sm_au_=iVV74j0ssPFMPPHf"
+```
+
+```{r eval = FALSE, include = FALSE}
+
+urldiv <- "https://raw.githubusercontent.com/octonion/basketball/master/ncaa/csv/schools_divisions.csv?_sm_au_=iVV74j0ssPFMPPHf"
+
+result <- read.csv(url15, header=TRUE, sep =",")
+div <- read.csv(urldiv, header=FALSE, sep=",")
+```
+
+
+##Combine Season and Division Data
+
+The Github data for season combines teams from a variety of divisions. It has data for Division 1 teams vs Divsion 4 teams and a lot of other combinations. Since the NCAA basketball tournament being considered is for division 1 teams, the division data and the season data had to be combined into one chunk of data.  Then the entire data frame can be subset to only those games that are with two division 1 teams. Any other combination will be dropped. Some of the teams have different names from year to year (Connecticut is UCONN or Alcorn St. is Alcorn etc.) so in order for the matching to work properly, all the team names have to be the same, so some of the names in certain seasons had to be changed to match the divisonal data.
+
+```{r eval = FALSE}
+#Function: Data
+#Input: 
+#   div, data frame of the divisions for the teams
+#   result, season data for the teams
+#Output:
+#   returns a data frame that has only division 1 games, all other games were dropped.
+#This function will take the season data and the divisional data and combine them together. This gives the ability to pick only division 1 games.
+data <- function(div, result)
+{
+  names(div) <- c("team_id", "division")
+  jointeam <- left_join(result, div, by = "team_id")
+  almost <- jointeam %>% select(year, team_name, opponent_name, opponent_id, team_score, opponent_score, division)
+  colnames(almost)[colnames(almost)=="division"] <- "team_division"
+  colnames(almost)[colnames(almost)=="opponent_id"] <- "team_id"
+  joinopp <- left_join(almost, div, by = "team_id")
+  colnames(joinopp)[colnames(joinopp)=="division"] <- "opp_division"
+  final <- joinopp %>% select(year, team_name, opponent_name, team_score, opponent_score, team_division, opp_division)
+  
+  D1 <- subset(final, team_division == "I"&opp_division == "I")
+  
+  return(D1)
+}
+
+#Change the names of the teams to match between the divisions and the seasonal data. These teams are common amongst all of the years
+Data <- data(div,result)
+Data$team_name <- as.character(Data$team_name)
+Data$team_division <- as.character(Data$team_division)
+Data$opponent_name <- as.character(Data$opponent_name)
+Data$opp_division <- as.character(Data$opp_division)
+Data$opponent_name[Data$opponent_name == "Alcorn St."] <- "Alcorn"
+Data$opponent_name[Data$opponent_name == "Connecticut"] <- "UConn"
+Data$opponent_name[Data$opponent_name == "Md.-East. Shore"] <- "UMES"
+Data$opponent_name[Data$opponent_name == "St. Francis (NY)"] <- "St. Francis Brooklyn"
+Data$opponent_name[Data$opponent_name == "UNC Wilmington"] <- "UNCW"
+Data$opponent_name[Data$opponent_name == "Cal St. Northridge"] <- "CSUN"
+Data$opponent_name[Data$opponent_name == "S.C. Upstate"] <- "USC Upstate"
+Data$opponent_name[Data$opponent_name == "Neb. Omaha"] <- "Omaha"
+Data$opponent_name[Data$opponent_name == "CSU Bakersfield"] <- "Bakersfield"
+Data$opponent_name[Data$opponent_name == "SIU Edwardsville"] <- "SIUE"
+Data$opponent_name[Data$opponent_name == "Fla. Gulf Coast"] <- "FGCU"
+
+#The stats for Utah Vallet stats were missing. I hade to create their offesnive stats to all the matching with the divisnal data.
+#This only happens for the 2004 season.
+if (Data$year == 2004)
+{
+  uvu <- subset(Data, Data$opponent_name == "Utah Valley")
+  i <- 1
+  for (i in 1:NROW(uvu))
+  {
+    temp <- uvu$opponent_name[i]
+    uvu$opponent_name[i] <- uvu$team_name[i]
+    uvu$team_name[i] <- temp
+    
+    temp <- uvu$opponent_score[i]
+    uvu$opponent_score[i] <- uvu$team_score[i]
+    uvu$team_score[i] <- temp
+    i <- i + 1
+  }
+  Data <- rbind(Data, uvu)
+}
+
+#The 2016 season data had a tab character (/n) in the teams name. I had to split the list on the tab character, then extract the names of each team. Team names come in a wide variety, ranging from 1 to 4 name with a wide variety of punctuation in between. This is only for the 2016 season.
+
+if (Data$year == 2016)
+{
+  names <- unlist(str_split(Data$opponent_name, '\n'))
+  
+  i <- 2
+  j <- 1
+  for (j in 1:(NROW(Data)))
+  {
+    Data$opponent_name[j] <- names[i]
+    i <- i + 2
+    j <- j + 1
+  }
+  Data$opponent_name <- unlist(str_extract_all(Data$opponent_name, "[[:alpha:]]{1,}[[:punct:]]{0,}[[:alpha:]]{0,}[[:space:]]{0,}[[:alpha:]]{0,}[[:punct:]]{0,}[[:alpha:]]{0,}[[:space:]]{0,}[[:alpha:]]{0,}[[:punct:]]{0,}[[:alpha:]]{0,1}[[:space:]]{0,}[[:alpha:]]{0,}[[:punct]]{0,}[[:alpha:]]{0,}[[:punct:]]{0,}"))
+  Data$opponent_name[Data$opponent_name == "Stephen F. Austin"] <- "SFA"
+  Data$opponent_name[Data$opponent_name == "Texas-Arlington"] <- "UT Arlington"
+  Data$opponent_name[Data$opponent_name == "Citadel"] <- "The Citadel"
+}
+
+```
+
+##Seasonal Rankings
+
+The response variable being used for this process is the end of the year rankings. Instead of using the rankings that are given by the coaches, this project will calculate its own based on the Massy ranking system. This sytem has been used for the official rankings of ESPN and was created by a student as a part of a graduate research project. Rankings are created on a game by game basis, so they can be updated as the season goes on. This system compares the result of each game to the difference in the scores.
+
+```{r eval=FALSE}
+col <- as.character(unique(Data$team_name))
+
+matrix <- matrix(0, ncol = length(col), nrow = NROW(Data), byrow=TRUE)
+dimnames(matrix) <- list(c(1:NROW(Data)), col)
+
+#Function: Schedule
+#Input:
+#  matrix, an empty matrix to hold the information for the ranking system. It is a square matrix with the dimensions being the number of teams for that season
+#  Data, a data frame that contains the seaonsal data for division 1
+#OUtput:
+#  matrix that contains the results for each game for each team during hte season.
+#This function will create a matrix that is used for input into the ranking formula. Each column of the martix contain the team name. Each row of the matrix will contain a game. When two teams play against each other, the winner will get a 1 on the intersection and the loser will get a -1. The we would move onto the next game. This will continue for every game that was played for that season. 
+
+schedule <- function(matrix, Data)
+{
+  i <- 1
+  for (i in 1:NROW(Data))
+  {
+    if (as.numeric(Data[i,4]) > as.numeric(Data[i,5]))
+    {
+      matrix[i,Data[i,2]] = 1
+      matrix[i,Data[i,3]] = -1
+    } 
+    else   
+    {
+      matrix[i,Data[i,2]] = - 1
+      matrix[i,Data[i,3]] =  1
+    }
+    i <- i + 1
+  }
+  return(matrix)
+}
+
+Team <-schedule(matrix, Data)
+
+#Function: scoredifferential
+#Input:
+#  Data, data frame containing the seasonal data
+#Output:
+# diff, a 1 by number of games matrix that conatins the difference in the score of each game
+#This is a function that will calculate the score differential for each game that is played throughout the season. If team A beat team B 70-60. Then the entry will be 10, If team A lost to team B 60-70, then the entry would be -10.
+
+scoredifferential <- function(Data)
+{
+  
+  i <- 1
+  diff <- matrix(0, nrow = NROW(Data), ncol = 1)
+  
+  for (i in 1 : NROW(Data))
+  {
+    
+    diff[i] <- as.numeric(Data[i,4])-as.numeric(Data[i,5])
+    i <- i + 1
+  }
+  return(diff)
+}
+
+diff <- scoredifferential(Data)
+absdiff <- abs(diff)
+
+#Transpose the matrix
+tteam <- t(Team)
+#Multiply the transpose by the original matrix
+A <- tteam %*% Team
+#Multiply the transpose matrix by the matrix taht contains the differences
+B <- tteam %*% absdiff
+
+#Make the last rowm of the socre matrix 1's and the last ebtry of the socre difference matrix a 0. If this is not done, then there is no solution due to the properties of the matrix.
+A[NROW(A),] = 1
+B[NROW(B),1] = 0
+
+#Solve the linear equation to get the rankings of the teams.
+rankings <- solve(A,B)
+
+#order the teams by the rankings 
+rankings <- as.data.frame(rankings)
+ranks <- rankings[order(-rankings[1]), , drop = FALSE]
+ranks$rank <- c(1:NROW(ranks))
+```
+
+
+### Massy Ranking Algorithm
+
+The table below shows the results of the Massy Ranking algorithm:
+
+```{r echo = FALSE}
+x <- getURL("https://raw.githubusercontent.com/kfolsom98/DATA607/master/Final-Project/data/Rankings.csv")
+ranks <- read.csv(text=x, header=T, stringsAsFactor = FALSE)
+colnames(ranks) = c("Y2015", "2015_Rank", 
+                    "Y2014", "2014_Rank", 
+                    "Y2013", "2013_Rank", 
+                    "Y2012", "2012_Rank", 
+                    "Y2011", "2011_Rank",                 
+                    "Y2010", "2010_Rank", 
+                    "Y2009", "2009_Rank", 
+                    "Y2008", "2008_Rank", 
+                    "Y2007", "2007_Rank",                    
+                    "Y2006", "2006_Rank")                 
+                   
+
+kable(head(ranks[1:10], 20))
+```
+
+
+## Processing Team Statistics 
+
+The 14 categories of team statistics were web scraped from www.teamrankings.com using a combination of the `rvest` and `htmltab` packages in R.  In total, there are 115 NCAA college basketball statistics available on teamrankings.com per team per year.  Additionaly, each statistics includes the team's rank within the season for a given statistic.  
+
+
+```{r, echo = FALSE}
+
+## -----------------------------------------------------------
+## Function: DBconnect
+## -----------------------------------------------------------
+
+DBconnect <- function () {
+    
+   # establish the connection to the skill DB on db4free.net
+   bbmetricDB = dbConnect(MySQL(), user=proj_user, password=proj_pwd, dbname=proj_db, host=proj_host)
+   
+   return (bbmetricDB)
+
+}
+
+```
+
+```{r eval = TRUE}
+baseURL <- "https://www.teamrankings.com/ncb/stats/"
+url_content  <- read_html(baseURL)
+
+stat.links <- url_content %>%  
+              html_nodes("*") %>% 
+              html_nodes(xpath = "./a") %>% 
+              html_attr("href") %>%  
+              str_match("/ncaa-basketball/stat/.+")   
+
+stat.links <- stat.links[complete.cases(stat.links),]
+```
+
+The URL for each statistic is constructed to create 115 callable URLs which can be used with a date parameter for each season.
+
+```{r, echo = FALSE}
+head(stat.links, 10)
+```
+
+```{r}
+baseStatURL <- "https://www.teamrankings.com"
+
+season_year_end <- 2016
+
+allStatsURL <- sprintf("%s%s%s", baseStatURL, stat.links, sprintf("?date=%s-04-06", season_year_end)) 
+
+```
+
+An example of the URLs constructured for the team statistics for the 2015 season is shown below:
+
+```{r, echo = FALSE}
+
+URLs <- as.data.frame(allStatsURL)
+
+names(URLs) <- "Team Stats URLs"
+
+kable(head(URLs, 10))
+
+```
+
+
+```{r}
+
+
+## -----------------------------------------------------------
+## Function: get_team_stats
+##
+## -----------------------------------------------------------
+  
+get_team_stats <- function(statURL, year, createCSV = TRUE) {
+
+        for (i in 1:length(statURL)) {     
+            
+            # Keep the rank, team, and stat for the given year
+            statHTMLtab <- htmltab(doc = statURL[i], which = 1)[, 1:3]
+            
+            # parse the current stat name from the URL string
+            statname <- str_replace_all(str_extract(statURL[i], "(?<=\\/stat\\/).*?.*?(?=\\?)"), "-", "_")
+            
+            # convert double-underscores to a single underscore
+            statname <- str_replace_all(statname, "__", "_") 
+            
+            stats.df <- statHTMLtab %>% gather(key = Year, value = "stat", -Team, -Rank) 
+            
+            # convert the year from a character to integer
+            stats.df$Year <- as.integer(stats.df$Year)
+
+            # replace % signs in the statistic value
+            stats.df$stat <- as.numeric(gsub("%|--", "", stats.df$stat))
+            stats.df$Rank <- as.integer(stats.df$Rank)
+        
+            # rename the rank column 
+            names(stats.df)[names(stats.df) == "Rank"] <- sprintf("%s_%s", statname, "rank")
+            
+            # rename the stat column to the stat being extracted in the URL
+            names(stats.df)[names(stats.df) == "stat"] <- statname
+            
+            # reorder the columns
+            stats.df <- stats.df[, c(3, 2, 4, 1)]
+            
+            
+            if (i == 1) {return.df <- stats.df}
+            else {
+                
+                return.df <- return.df %>% left_join(stats.df, by = c("Year" = "Year", "Team" = "Team"))
+            }
+            
+        }
+    
+        if (createCSV) { 
+            
+            # write the team stats to a csv file
+            write.csv(return.df, sprintf("team_stats_%s.csv", year - 1), row.names = FALSE)
+        }
+     
+       # return the stats dataframe
+       return (return.df)
+    
+}    
+
+## -----------------------------------------------------------
+## Function: load_RMySQL_DB
+##
+## -----------------------------------------------------------
+
+load_RMySQL_DB <- function(tablename, df, overwrite = TRUE, append = FALSE) {
+    
+    # establish the connection to the skill DB on db4free.net
+    bbmetricDB = dbConnect(MySQL(), user=proj_user, password=proj_pwd, dbname=proj_db, host=proj_host)
+    
+    dbWriteTable(bbmetricDB, 
+                 name = tablename, 
+                 value = df,
+                 overwrite = overwrite, 
+                 append = append, 
+                 row.names = FALSE)
+    
+    dbDisconnect(bbmetricDB)
+}
+
+```
+
+Using the function `get_team_stats`, teams statistics for the NCAA basketball seasons (starting) from 2006 - 2015
+
+```{r 2016_stats, eval = FALSE}
+
+team.stats.2016 <- get_team_stats(allStatsURL, season_year_end, createCSV = FALSE) 
+
+```
+
+
+The team statistics for the 2015 - 2016 season (partial listing):
+
+```{r, include=FALSE}
+
+bbmetricDB <- DBconnect()
+team.stats.2016 <- dbGetQuery(bbmetricDB, "select * from team_stats where season_start_year = 2015")
+dbDisconnect(bbmetricDB)
+
+```
+
+```{r, echo = FALSE}
+
+kable(team.stats.2016[1:20])
+
+```
+
+This process of assembling team statistics was repeated to collect 10 years of statistics.  Each year's combined team statistics were loaded into a cloud MySQL database, described below. 
+
+
+## Collecting NCAA Tournament Results  
+
+NCAA Tournament results from collected from 2007 - 2016.  For each year, the teams making the Round of 64, Round of 32, Sweet 16, Elite 8, Final 4, Championship Game, and Champion were assembled and stored.  
+
+```{r, include = FALSE}
+## ------------------------------------------
+## Using RMYSQL
+## ------------------------------------------
+
+# establish the connection to the skill DB on db4free.net
+bbmetricDB = dbConnect(MySQL(), user=proj_user, password=proj_pwd, dbname=proj_db, host=proj_host)
+
+bracket.2016 <- dbGetQuery(bbmetricDB, "select * from ncaa_brackets where tournament_year = 2016")
+    
+#close the connection
+dbDisconnect(bbmetricDB)
+```
+
+
+
+The process to collect the NCAA Tournament bracket teams was somewhat manual since the winners of each round are most commonly represented in a bracket graphic versus as a list of teams.
+
+The site http://www.cbssports.com/collegebasketball/ncaa-tournament/history/yearbyyear provided the winners of each round up to 2012 but stopped beyond this tournament year.
+
+![NCAA Bracket Winners](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Final-Project/images/NCAA_Bracket.PNG)
+
+
+Each round of winners was parsed using the function below, which uses the `splitstatshape` R package to create a dataframe of the teams in each bracket.
+
+```{r}
+
+suppressWarnings(suppressMessages(library(splitstackshape)))
+
+parse_bracket_results <- function(team_string) {
+
+        str(team_string)
+        
+        team_string.new <- 
+          strsplit(
+            str_replace_all(s, "No. |[0-9]|(OT)|OT|\\(|\\)", "") , "\n")
+        
+        f <- as.data.frame(team_string.new); 
+        
+        f <- as.data.frame(str_c(str_replace(as.character(f[, 1]), "(.),(.)", "|"), "|"))
+        colnames(f) <- "team"             
+                    
+        
+        f <- as.data.frame(cSplit(f, "team", "|", direction = "long"))
+        f$team <- as.character(f$team)
+        
+        f <- f %>% 
+              select(team) %>% 
+              filter(team != "") %>% 
+              mutate(team = str_replace_all(team, " ,$| $", ""))
+
+        return (f)
+
+}
+
+```
+
+Sample of the NCAA bracket winners for 2016:
+
+```{r, echo = FALSE}
+
+kable(bracket.2016)
+
+```
+
+The NCAA bracket winners for the 2013, 2014, 2015, and 2016 tournaments were manually extracted from Wikipedia:
+
+https://en.wikipedia.org/wiki/2013_NCAA_Men%27s_Division_I_Basketball_Tournament
+
+The bracket results for ten seasons can be found [here](https://github.com/kfolsom98/DATA607/tree/master/Final-Project/data) in CSV format.  These files were subsequently loaded into a MySQL database using the `load_RMySQL_DB` function
+ 
+#MySQL Database
+
+To facilitate centralized data storage and access for this project, a MySQL database on dbfree.net was chosen as a cloud repository for the team statistics and bracket results.
+
+![MySQL DB](https://raw.githubusercontent.com/kfolsom98/DATA607/master/Final-Project/images/MySQL.PNG)
+
+The team statistics assembled for each year were staged in the MySQL database and combined into a single, consolidated team statistics table.  The SQL for the table DDL and the dynamically executed insert statement can be found [here](https://github.com/kfolsom98/DATA607/tree/master/Final-Project/sql).
+
+The code to insert the team statistics by year is shown below:
+
+```{r, eval = FALSE}
+
+## Insert Team Stats By Year 
+
+suppressWarnings(suppressMessages(library(readr)))
+
+url <- "https://raw.githubusercontent.com/kfolsom98/DATA607/master/Final-Project/sql/insert_team_stats_year.sql"
+
+ins <- read_file(url)
+
+stat.tables  <-    dbGetQuery(bbmetricDB, "SELECT DISTINCT TABLE_NAME 
+                                             FROM INFORMATION_SCHEMA.COLUMNS 
+                                            WHERE TABLE_SCHEMA = 'bbmetric' 
+                                              AND TABLE_NAME like 'team_stats_%'")
+
+dbGetQuery(bbmetricDB, "TRUNCATE TABLE team_stats")
+
+for (i in 1:nrow(stat.tables)) {
+    
+    insert <- str_replace(ins, "<<!table_name>>", stat.tables[i, ])
+    
+    print(paste0("Preparing insert for ", stat.tables[i, ]))
+          
+    res <- dbSendQuery(bbmetricDB, insert)
+
+}
+
+
+dbSendQuery(bbmetricDB, "select count(*) from team_stats")
+
+```
+
+The NCAA bracket result data was combined locally and uploaded to the MySQL database with this process:
+
+```{r, eval = FALSE}
+
+## Load the ncaa bracket data ##
+ 
+ suppressWarnings(suppressMessages(library(data.table)))
+
+ df <- data.frame()
+ 
+ files <- list.files(pattern="ncaa*.*.csv")
+ 
+ for (f in files)  df<-rbind(Dataf, fread(f))
+ 
+ ## push the brackets per year to the DB
+ 
+ dbSendQuery(bbmetricDB, "TRUNCATE TABLE ncaa_brackets")
+ 
+ load_RMySQL_DB("ncaa_brackets", df, overwrite = FALSE, append = TRUE)
+ 
+ #close the connection
+ dbDisconnect(bbmetricDB)
+ 
+```
+ 
+One significant challenge encountered while processing the team statistics and bracket winners was that the same team could be entered with multiple variations of a name.  To standardize the team names, the source team name was mapped to a consistent team name while being inserted into the `team_stats` combined table.
+
+To illustrate the approach, the following example shows the mappings for the team St. Mary's (CA) and all the variations seen in the source team stats data.
+
+```{r, echo = FALSE, include = FALSE}
+bbmetricDB = dbConnect(MySQL(), user=proj_user, password=proj_pwd, dbname=proj_db, host=proj_host)
+
+ex <- dbGetQuery(bbmetricDB, "select * from team_name_map where new_name = 'St. Mary''s (CA)'")
+    
+#close the connection
+dbDisconnect(bbmetricDB)
+```
+
+```{r, echo = FALSE}
+
+kable(ex)
+
+```
+ 
+The final step in preparing the combined team statistics table is to apply the NCAA bracket winners for each year.  A team reaching a specific level in the bracket (e.g. Sweet 16 or Final 4) for a specific year will be given a value of 1, as an indicator variable.  Otherwise, the team will have a value of 0 for each bracket level.
+
+```{r, eval = FALSE} 
+
+ ## UPDATE - Reset Bracket Values  
+ 
+ dbGetQuery(bbmetricDB, " update team_stats ts
+                             set ts.ncaa_round_64 = 0,
+                                 ts.ncaa_round_32 = 0,
+                                 ts.ncaa_sweet_16 = 0,
+                                 ts.ncaa_elite_8  = 0, 
+                                 ts.ncaa_final_4  = 0, 
+                                 ts.ncaa_championship_game  = 0, 
+                                 ts.ncaa_champion = 0
+            ") 
+ 
+## UPDATE  - Set the bracket column value to 1 for each team in the given bracket for the given year  
+ 
+update_cols <- c("round_64","round_32", "sweet_16", 
+                 "elite_8", "final_4",
+                 "championship_game", 
+                 "champion")
+
+ 
+for (i in 1:length(update_cols)) {
+    
+   update <- 
+    sprintf(" update team_stats ts
+               inner join 
+                     (
+                      select nb.tournament_year, 
+                             ifnull(map.new_name, nb.%s) team_name
+                        from ncaa_brackets nb  left outer join team_name_map map on nb.%s = map.old_name) br 
+                  on ts.season_end_year = br.tournament_year and ts.team_name = br.team_name
+                 set ts.ncaa_%s = 1", update_cols[i], update_cols[i], update_cols[i])
+ 
+    dbGetQuery(bbmetricDB, update)
+                      
+}
+
+``` 
+
+
+### Extracting Defensive Stats - MySQL Database
+
+
+```{r eval = FALSE}
+
+#Get the column names for the query
+column_names <- read.csv("https://raw.githubusercontent.com/DanielBrooks39/IS607/master/Final_Project/Column_names.csv", sep=",", header=FALSE, stringsAsFactors = FALSE)
+years <- c("2015", "2014", "2013", "2012", "2011", "2010", "2009", "2008", "2007", "2006")
+
+#Function: getdata
+#Input:
+#  years, the years for the database table
+#  column_names, the names of the columns that are in the database
+#  username, the username to connect tot the database
+#  password, the password for teh database
+#  database, the database name to connect to the database
+#  hotname, the hostname where the database resides
+#Output:
+#  Writes a csv to the working directoy for every table that is specified by the query.
+#This function will create a query for each of the years that we wabt in the database. It will connect to the database and poull back the desired columns for each year that we want. It will take each year that is qurries and writes it to a csv on the working directory.
+getdata <- function(years, column_names, username, password, database, hostname)
+{
+  con <- dbConnect(MySQL(), user=username, password = password, dbname = database, host = hostname)
+
+  base_table <- "team_stats_"
+  
+  i <- 1
+  j <- 1
+  
+  for (i in 1 : NROW(years))
+  {
+    switch(years[i],
+           "2015" = data <- data.frame(double(351)), 
+           "2014" = data <- data.frame(double(351)),
+           "2013" = data <- data.frame(double(351)),
+           "2012" = data <- data.frame(double(347)),
+           "2011" = data <- data.frame(double(345)),
+           "2010" = data <- data.frame(double(345)),
+           "2009" = data <- data.frame(double(345)),
+           "2008" = data <- data.frame(double(341)),
+           "2007" = data <- data.frame(double(341)),
+           "2006" = data <- data.frame(double(336))
+          )
+    for (j in 1 : NROW(column_names))
+    {
+      query <- dbGetQuery(con, paste("select", " ", column_names$V1[j], " ", "from", " ", base_table, years[i], sep=""))
+      data[,j] <- query
+      j <- j + 1 
+    }
+    write.csv(data, paste("data", years[i], ".csv", sep = ""), append = TRUE, col.names = TRUE)
+    i <- i + 1
+  }
+  dbDisconnect(con)
+}
+
+getdata(years, column_names, username, password, database, hostname)
+```
+
+###Manipulate Query Data
+
+The database data is read in from the CSV's that were created earlier. The CSV's are read in one at a time and stored in their separate data frames. There is also a mismatch between the database team names and the names that are used in the rankings. The teams names need to be the same in order to join the two tables together and and get everything in the same data frame.
+
+```{r eval = FALSE, include = FALSE}
+#Read in all of the data that was written from the query.
+data2006 <- read.csv("data2006.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2006)[2] <- "V1"
+data2007 <- read.csv("data2007.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2007)[2] <- "V1"
+data2008 <- read.csv("data2008.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2008)[2] <- "V1"
+data2009 <- read.csv("data2009.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2009)[2] <- "V1"
+data2010 <- read.csv("data2010.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2010)[2] <- "V1"
+data2011 <- read.csv("data2011.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2011)[2] <- "V1"
+data2012 <- read.csv("data2012.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2012)[2] <- "V1"
+data2013 <- read.csv("data2013.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2013)[2] <- "V1"
+```
+```{r eval=FALSE}
+data2014 <- read.csv("data2014.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2014)[2] <- "V1"
+data2015 <- read.csv("data2015.csv", header = TRUE, sep = ",", stringsAsFactors = FALSE)
+colnames(data2015)[2] <- "V1"
+```
+
+```{r, eval=FALSE,include = FALSE}
+#Function: mandata
+#Input:
+#  data, the data frame that contains the information from the database
+#  ranks, the ranks for the teams
+#Output:
+#  Retruns a combined dataframe of the database and the ranking data
+#This function goes through and changes the names of the database data and changes it to the names of the ranking data. It the combines the two data frames one data frame.
+
+mandata <- function(data, ranks)
+{
+ data$V1[data$V1 == "N Carolina"] <- "North Carolina"
+ data$V1[data$V1 == "Ohio State"] <- "Ohio St."
+ data$V1[data$V1 == "GA Tech"] <- "Georgia Tech"
+ data$V1[data$V1 == "Michigan St"] <- "Michigan St."
+ data$V1[data$V1 == "Miss State"] <- "Mississippi St."
+ data$V1[data$V1 == "W Virginia"] <- "West Virginia"
+ data$V1[data$V1 == "VA Tech"] <- "Virginia Tech"
+ data$V1[data$V1 == "Florida St"] <- "Florida St." 
+ data$V1[data$V1 == "Missouri St"] <- "Missouri St."
+ data$V1[data$V1 == "Boston Col"] <- "Boston College"
+ data$V1[data$V1 == "S Illinois"] <- "Southern Ill."
+ data$V1[data$V1 == "Wash State"] <- "Washington St."
+ data$V1[data$V1 == "Connecticut"] <- "UConn"
+ data$V1[data$V1 == "Kansas St"] <- "Kansas St."
+ data$V1[data$V1 == "Mississippi"] <- "Ole Miss"
+ data$V1[data$V1 == "Oklahoma St"] <- "Oklahoma St."
+ data$V1[data$V1 == "Wichita St"] <- "Wichita St."
+ data$V1[data$V1 == "U Mass"] <- "Massachusetts"
+ data$V1[data$V1 == "NC State"] <- "North Carolina St." 
+ data$V1[data$V1 == "N Illinois"] <- "UNI"
+ data$V1[data$V1 == "San Diego St"] <- "San Diego St."
+ data$V1[data$V1 == "Kent State"] <- "Kent St."
+ data$V1[data$V1 == "Illinois St"] <- "Illinois St."
+ data$V1[data$V1 == "N Mex State"] <- "New Mexico St."
+ data$V1[data$V1 == "St Josephs"] <- "Saint Joseph's"
+ data$V1[data$V1 == "App State"] <- "Appalachian St."
+ data$V1[data$V1 == "Fresno St"] <- "Fresno St."
+ data$V1[data$V1 == "Loyola-Chi"] <- "Loyola Chicago"
+ data$V1[data$V1 == "Utah State"] <- "Utah St."
+ data$V1[data$V1 == "St Marys"] <- "St. Mary's (CA)"
+ data$V1[data$V1 == "U Penn"] <- "Penn"
+ data$V1[data$V1 == "Geo Wshgtn"] <- "George Washington"
+ data$V1[data$V1 == "Geo Mason"] <- "George Mason"
+ data$V1[data$V1 == "St Johns"] <- "St. John's (NY)"
+ data$V1[data$V1 == "Colorado St"] <- "Colorado St."
+ data$V1[data$V1 == "Central FL"] <- "UCF"
+ data$V1[data$V1 == "S Carolina"] <- "South Carolina"
+ data$V1[data$V1 == "TX El Paso"] <- "UTEP"
+ data$V1[data$V1 == "N Dakota St"] <- "North Dakota St."
+ data$V1[data$V1 == "Boise State"] <- "Boise St."
+ data$V1[data$V1 == "Arizona St"] <- "Arizona St."
+ data$V1[data$V1 == "Penn State"] <- "Penn St."
+ data$V1[data$V1 == "S Mississippi"] <- "Southern Miss."
+ data$V1[data$V1 == "TX A&M-CC"] <- "A&M-Corpus Christi"
+ data$V1[data$V1 == "Iowa State"] <- "Iowa St."
+ data$V1[data$V1 == "W Michigan"] <- "Western Mich."
+ data$V1[data$V1 == "Utah Val St"] <- "Utah Valley"
+ data$V1[data$V1 == "S Florida"] <- "South Fla."
+ data$V1[data$V1 == "W Kentucky"] <- "Western Ky."
+ data$V1[data$V1 == "Indiana St"] <- "Indiana St."
+ data$V1[data$V1 == "Wright State"] <- "Wright St."
+ data$V1[data$V1 == "Lg Beach St"] <- "Long Beach St."
+ data$V1[data$V1 == "Col Charlestn"] <- "Col. of Charleston"
+ data$V1[data$V1 == "IL-Chicago"] <- "Ill.-Chicago"
+ data$V1[data$V1 == "Sam Hous St"] <- "Sam Houston St."
+ data$V1[data$V1 == "Oregon St"] <- "Oregon St."
+ data$V1[data$V1 == "San Fransco"] <- "San Francisco"
+ data$V1[data$V1 == "S Methodist"] <- "SMU"
+ data$V1[data$V1 == "UCSB"] <- "UC Santa Barbara"
+ data$V1[data$V1 == "TX Christian"] <- "TCU"
+ data$V1[data$V1 == "Albany"] <- "Albany (NY)"
+ data$V1[data$V1 == "TN Tech"] <- "Tennessee Tech"
+ data$V1[data$V1 == "S Alabama"] <- "South Ala."
+ data$V1[data$V1 == "NC-Grnsboro"] <- "UNC Greensboro"
+ data$V1[data$V1 == "Idaho State"] <- "Idaho St."
+ data$V1[data$V1 == "E Tenn St"] <- "East Tenn. St."
+ data$V1[data$V1 == "Youngs St"] <- "Youngstown St."
+ data$V1[data$V1 == "N Arizona"] <- "Northern Ariz."
+ data$V1[data$V1 == "CS Fullerton"] <- "Cal St. Fullerton"
+ data$V1[data$V1 == "Ball State"] <- "Ball St."
+ data$V1[data$V1 == "Weber State"] <- "Weber St."
+ data$V1[data$V1 == "Central Conn"] <- "Central Conn. St."
+ data$V1[data$V1 == "Northwestern"] <- "Northwestern St."
+ data$V1[data$V1 == "E Kentucky"] <- "Eastern Ky."
+ data$V1[data$V1 == "Wm & Mary"] <- "William & Mary"
+ data$V1[data$V1 == "E Washingtn"] <- "Eastern Wash."
+ data$V1[data$V1 == "LA Tech"] <- "Louisiana Tech"
+ data$V1[data$V1 == "S Utah"] <- "Southern Utah"
+ data$V1[data$V1 == "Northeastrn"] <- "Northeastern"
+ data$V1[data$V1 == "N Dakota St"] <- "North Dakota"
+ data$V1[data$V1 == "Portland St"] <- "Portland St."
+ data$V1[data$V1 == "Loyola-MD"] <- "Loyola Maryland"
+ data$V1[data$V1 == "Sacred Hrt"] <- "Sacred Heart"
+ data$V1[data$V1 == "Boston U"] <- "Boston U."
+ data$V1[data$V1 == "WI-Milwkee"] <- "Milwaukee"
+ data$V1[data$V1 == "GA Southern"] <- "Ga. Southern"
+ data$V1[data$V1 == "Central Mich"] <- "Central Mich."
+ data$V1[data$V1 == "Ste F Austin"] <- "Stephen F. Austin"
+ data$V1[data$V1 == "Loyola Mymt"] <- "Loyola Marymount"
+ data$V1[data$V1 == "E Michigan"] <- "Eastern Mich."
+ data$V1[data$V1 == "Bowling Grn"] <- "Bowling Green"
+ data$V1[data$V1 == "Middle Tenn"] <- "Middle Tenn."
+ data$V1[data$V1 == "Murray St"] <- "Murray St."
+ data$V1[data$V1 == "N Illinois"] <- "Northern Ill."
+ data$V1[data$V1 == "Chicago St"] <- "Chicago St."
+ data$V1[data$V1 == "NC-Wilmgton"] <- "UNCW"
+ data$V1[data$V1 == "Cleveland St"] <- "Cleveland St."
+ data$V1[data$V1 == "Cal St Nrdge"] <- "CSUN"
+ data$V1[data$V1 == "Delaware St"] <- "Delaware St."
+ data$V1[data$V1 == "San Jose St"] <- "San Jose St."
+ data$V1[data$V1 == "Arkansas St"] <- "Arkansas St."
+ data$V1[data$V1 == "Coastal Car"] <- "Coastal Caro."
+ data$V1[data$V1 == "Georgia St"] <- "Georgia St."
+ data$V1[data$V1 == "SE Louisiana"] <- "Southeastern La."
+ data$V1[data$V1 == "VA Military"] <- "VMI"
+ data$V1[data$V1 == "Mt St Marys"] <- "Mt. St. Mary's"
+ data$V1[data$V1 == "AR Lit Rock"] <- "UALR"
+ data$V1[data$V1 == "NC-Asheville"] <- "UNC Asheville"
+ data$V1[data$V1 == "W Carolina"] <- "Western Caro."
+ data$V1[data$V1 == "LA Monroe"] <- "La.-Monroe"
+ data$V1[data$V1 == "Maryland BC"] <- "UMBC"
+ data$V1[data$V1 == "F Dickinson"] <- "Fairleigh Dickinson"
+ data$V1[data$V1 == "Morehead St"] <- "Morehead St."
+ data$V1[data$V1 == "TX-Pan Am"] <- "Tex.-Pan American"
+ data$V1[data$V1 == "Florida A&M"] <- "Florida A&M"
+ data$V1[data$V1 == "Kennesaw St"] <- "Kennesaw St."
+ data$V1[data$V1 == "James Mad"] <- "James Madison"
+ data$V1[data$V1 == "E Carolina"] <- "East Carolina"
+ data$V1[data$V1 == "Fla Atlantic"] <- "Fla. Atlantic"
+ data$V1[data$V1 == "McNeese St"] <- "McNeese St."
+ data$V1[data$V1 == "LA Lafayette"] <- "La.-Lafayette"
+ data$V1[data$V1 == "Montana St"] <- "Montana St."
+ data$V1[data$V1 == "TN State"] <- "Tennessee St."
+ data$V1[data$V1 == "TX-Arlington"] <- "Texas-Arlington"
+ data$V1[data$V1 == "NC A&T"] <- "N.C. A&T"
+ data$V1[data$V1 == "St Fran (NY)"] <- "St. Francis Brooklyn"
+ data$V1[data$V1 == "Central Ark"] <- "Central Ark."
+ data$V1[data$V1 == "Jksnville St"] <- "Jacksonville St."
+ data$V1[data$V1 == "St Bonavent"] <- "St. Bonaventure"
+ data$V1[data$V1 == "Nicholls St"] <- "Nicholls St."
+ data$V1[data$V1 == "Miss Val St"] <- "Mississippi Val."
+ data$V1[data$V1 == "N Hampshire"] <- "New Hampshire"
+ data$V1[data$V1 == "Jackson St"] <- "Jackson St."
+ data$V1[data$V1 == "Morgan St"] <- "Morgan St."
+ data$V1[data$V1 == "Florida Intl"] <- "FIU"
+ data$V1[data$V1 == "E Illinois"] <- "Eastern Ill."
+ data$V1[data$V1 == "Gard-Webb"] <- "Gardner-Webb"
+ data$V1[data$V1 == "S Car State"] <- "South Carolina St."
+ data$V1[data$V1 == "Sac State"] <- "Sacramento St"
+ data$V1[data$V1 == "St Fran (PA)"] <- "Saint Francis (PA)"
+ data$V1[data$V1 == "St Peters"] <- "Saint Peter's"
+ data$V1[data$V1 == "TN Martin"] <- "UT Martin"
+ data$V1[data$V1 == "LIU-Brooklyn"] <- "LIU Brooklyn"
+ data$V1[data$V1 == "N Colorado"] <- "Northern Colo."
+ data$V1[data$V1 == "W Illinois"] <- "Western Ill."
+ data$V1[data$V1 == "Coppin State"] <- "Coppin St."
+ data$V1[data$V1 == "Charl South"] <- "Charleston So."
+ data$V1[data$V1 == "TX-San Ant"] <- "UTSA"
+ data$V1[data$V1 == "Savannah St"] <- "Savannah St."
+ data$V1[data$V1 == "S Dakota St"] <- "South Dakota St."
+ data$V1[data$V1 == "Texas State"] <- "Texas St."
+ data$V1[data$V1 == "Ark Pine Bl"] <- "Ark.-Pine Bluff"
+ data$V1[data$V1 == "Norfolk St"] <- "Norfolk St."
+ data$V1[data$V1 == "Southern"] <- "Southern U."
+ data$V1[data$V1 == "Alabama St"] <- "Alabama St."
+ data$V1[data$V1 == "TX Southern"] <- "Texas Southern" 
+ data$V1[data$V1 == "Grambling St"] <- "Grambling"
+ data$V1[data$V1 == "Beth-Cook"] <- "Bethune-Cookman"
+ data$V1[data$V1 == "N Florida"] <- "North Florida"
+ data$V1[data$V1 == "Alcorn State"] <- "Alcorn."
+ data$V1[data$V1 == "Alab A&M"] <- "Alabama A&M"
+ data$V1[data$V1 == "Maryland ES"] <- "UMES"
+
+ data <- data[,-1]
+ colnames(ranks)[1] <- "V1"
+ ranks$V1 <- rownames(ranks)
+
+ return(jointable2014 <- right_join(ranks, data, by = "V1"))
+}
+
+table2015 <- mandata(data2015, ranks)
+```
+
+
+#Modeling
+
+##Predictions Based on Defensive Statistics
+
+The following section will cover the processes used to model the defensive statistics to predict the top 8 teams.  The models used will be Model Tree, Decision Tree, and KNN.  The following lists the defensive variables used.
+
+```{r, include = FALSE}
+
+bbmetricDB <- DBconnect()
+
+defenseStats  <- dbGetQuery(bbmetricDB, 
+ "    select  Team_name,
+                opponent_points_per_game,
+                opponent_average_scoring_margin,
+                defensive_efficiency,
+                opponent_floor_percentage,
+                opponent_1st_half_points_per_game,
+                opponent_2nd_half_points_per_game,
+                opponent_overtime_points_per_game,
+                opponent_points_from_2_pointers,
+                opponent_points_from_3_pointers,
+                opponent_percent_of_points_from_2_pointers,
+                opponent_percent_of_points_from_3_pointers,
+                opponent_percent_of_points_from_free_throws,
+                opponent_shooting_pct,
+                opponent_effective_field_goal_pct,
+                opponent_three_point_pct,
+                opponent_two_point_pct,
+                opponent_free_throw_pct,
+                opponent_true_shooting_percentage,
+                opponent_three_point_rate,
+                opponent_two_point_rate,
+                opponent_fta_per_fga,
+                opponent_ftm_per_100_possessions,
+                opponent_free_throw_rate,
+                opponent_non_blocked_2_pt_pct,
+                opponent_offensive_rebounds_per_game,
+                opponent_defensive_rebounds_per_game,
+                opponent_offensive_rebounding_pct,
+                opponent_defensive_rebounding_pct,
+                opponent_blocks_per_game,
+                opponent_steals_per_game,
+                opponent_block_pct,
+                opponent_steals_perpossession,
+                opponent_steal_pct,
+                opponent_assists_per_game,
+                opponent_turnovers_per_game,
+                opponent_assist_per_turnover_ratio,
+                opponent_assists_per_fgm,
+                opponent_assists_per_possession,
+                opponent_turnovers_per_possession,
+                opponent_turnover_pct,
+                opponent_personal_fouls_per_game,
+                opponent_personal_fouls_per_possession,
+                opponent_personal_foul_pct,
+                opponent_win_pct_close_games,
+                opponent_win_pct_all_games,
+                opponent_effective_possession_ratio,
+                games_played
+          from team_stats 
+        where season_start_year limit 1")
+
+dbDisconnect(bbmetricDB)
+
+```
+
+
+```{r, echo = FALSE, include = FALSE}
+cols <- as.data.frame(colnames(defenseStats))
+names(cols) <- "Column Names"
+
+c1 <- cols[1:20,]
+
+c2 <- cols[21:40,]
+ 
+c3 <- cols[41:60,]
+ 
+c3[is.na(c3)] <- " "
+
+c <- cbind(c1, c2)
+c <- cbind(c, c3)
+
+colnames(c) <- c("Variable", "Variable", "Variable")
+
+```
+
+```{r, echo = FALSE}
+kable(c, caption = "Defensive Variables")
+
+```
+
+###Training and Test Data
+
+For the machine learning algorithms to work, it needs to be trained before it can predict anything. For this data, the training data will be the year of 2006-2014. The test data will be the most current year(2015). The training data is used to give the model a baseline and allow it to make groups or trees (depedning on the model type). Then the model can predict the rankings or the class of the test data.
+
+```{r eval = FALSE}
+
+traindata <- rbind(table2006, table2007, table2008, table2009, table2010, table2011, table2012,table2013, table2014)
+traindata <- na.omit(traindata)
+traindata <- traindata[,-1]
+traindata$rank <- factor(traindata$rank)
+
+testdata <- rbind(table2015)
+testdata <- na.omit(testdata)
+testnames <- testdata[1]
+testdata <- testdata[,-1]
+testdata$rank <- factor(testdata$rank)
+```
+
+
+###Model Tree
+The first model that will be used to calculate the top eight teams in division one basketball woud be the model tree. This is a more robust decision tree. Basically, it takes the training dataset and comes up with a set of rules. Each of those rules are a node on the tree. The difference between a model tree and a decision tree is, a model tree gives an equation for each node of a tree. Each rull that is decided on by the model will give a specific formula. That formula is then used to forecast the categories of the new data, based on what nodes the new data hits.
+For the case of this model, there was only one rule that was decided by the model. The equation is:
+
+\[
+  rank = -14.831 * opponent_points_per_game 
+	+ 13.6137 * opponent_average_scoring_margin 
+	+ 852.236 * defensive_efficiency 
+	- 3.8714 * opponent_floor_percentage 
+	+ 4.5235 * opponent_1st_half_points_per_game 
+	+ 5.0138 * opponent_2nd_half_points_per_game 
+	+ 7.6484 * opponent_overtime_points_per_game 
+	+ 10.7681 * opponent_points_from_2_pointers 
+	+ 10.0136 * opponent_points_from_3_pointers 
+	+ 8.4694 * opponent_percent_of_points_from_2_pointers 
+	+ 22.4938 * opponent_percent_of_points_from_3_pointers 
+	+ 10.4896 * opponent_percent_of_points_from_free_throws 
+	- 33.1115 * opponent_shooting_pct 
+	- 3.455 * opponent_effective_field_goal_pct 
+	- 3.8401 * opponent_three_point_pct 
+	+ 23.4914 * opponent_two_point_pct 
+	+ 3.9098 * opponent_true_shooting_percentage 
+	- 16.814 * opponent_three_point_rate 
+	+ 814.8023 * opponent_fta_per_fga 
+	- 10.9082 * opponent_ftm_per_100_possessions 
+	- 5.4238 * opponent_non_blocked_2_pt_pct 
+	- 8.2394 * opponent_offensive_rebounds_per_game 
+	+ 3.6402 * opponent_offensive_rebounding_pct 
+	- 37.5087 * opponent_blocks_per_game 
+	+ 16.5483 * opponent_steals_per_game 
+	+ 16.4092 * opponent_block_pct 
+	- 28.4589 * opponent_steals_perpossession 
+	+ 19.2984 * opponent_steal_pct 
+	+ 5.6475 * opponent_assists_per_game 
+	- 9.1663 * opponent_turnovers_per_game 
+	+ 243.8074 * opponent_assists_per_fgm 
+	- 1320.9676 * opponent_assists_per_possession 
+	+ 52.0246 * opponent_turnovers_per_possession 
+	- 62.0717 * opponent_turnover_pct 
+	+ 17.4931 * opponent_personal_fouls_per_game 
+	- 2.5374 * opponent_personal_fouls_per_possession 
+	- 12.8002 * opponent_personal_foul_pct 
+	- 98.1536 * opponent_win_pct_all_games 
+	- 1181.6373 * opponent_effective_possession_ratio 
+	- 8.2799 * games_played 
+	+ 994.0719
+\]
+  
+This can be used to get the new order of the teams for the new data.
+
+====Summary====         |Value|
+------------------------|-------|-----------
+Correlation coefficient:|  0.891|
+Mean absolute error:|35.658|
+Root mean squared error:|44.7633|
+Relative absolute error:|41.7723 %|
+Root relative squared error:|45.4043 %|
+Total Number of Instances:|2952|
+
+The summary data is showing that the correlation between this equation and the rank is rather high. Implying that this is a good equation to use for ranking of the teams.
+
+```{r eval = FALSE}
+
+suppressWarnings(suppressMessages(library(RWeka)))
+
+traindata$rank <- as.numeric(traindata$rank)
+testdata$rank <- as.numeric(testdata$rank)
+
+model_M5p <- M5P(rank~., data = traindata)
+pred <- predict(model_M5p, testdata[,-1])
+pred <- as.data.frame(pred)
+pred$team <- testnames
+sort <- pred[with(pred, order(pred)), ]
+```
+
+###Decision Tree
+A decision tree follows the same idea as a model tree. The data is broken apart into "rules". Each rule is a node of a tree. Depending on which side of the tree the data falls upon, determines what category the data will end up in. This kind of tree doesn't have any equations associated with it, so it will be used for classification and not used to atualy predict the value of the team.
+
+Classification Tree     |Value|
+------------------------|-------|-----------
+Number of Samples:      |2952|
+Number of Predictors    |47|
+Tree Size:              |1213|
+
+We can see that there was 2952 samples that were used to make the tree. There was 47 Predictors that were used in the model and the tree has 1213 nodes in it.
+
+We can also see the break down of what stats the tree uses. The more important stats get used the most in the model. Here are some of the stats used and the amount they were used in the model:
+
+Attribute                                   |% Usage|
+--------------------------------------------|-------|-----------
+opponent_average_scoring_margin| 100%
+games_played|92.65%
+opponent_points_per_game|36.79%
+opponent_overtime_points_per_game|36.52%
+opponent_free_throw_pct|33.16%
+opponent_defensive_rebounding_pct|28.22%
+opponent_blocks_per_game|26.56%
+opponent_floor_percentage|25.68%
+opponent_turnover_pct|23.78%
+opponent_assists_per_possession|21.54%
+opponent_win_pct_all_games|21.00%
+
+
+```{r eval = FALSE}
+
+suppressWarnings(suppressMessages(library(C50)))
+
+trainmodel <- C5.0(traindata[,-1], traindata[,1, trials = 3])
+testmodel <- predict(trainmodel, testdata[,-1], type="class")
+rank <- as.data.frame(testmodel)
+
+rank$teams <- testnames
+names(rank) <- c("ranks", "teams")
+sort_teams <- rank[with(rank, order(ranks)), ]
+```
+
+###KNN (K-Nearest Neighbor) Model
+The KNN model is the third model that is being used in this project. This model takes the number of categories, in our case, the rank, and separates the data into groups. In our case there are around 351 groups. The data is then placed into their groups and their stats act like a coordinate (in two dimensions x and y). The new data is then brought in and the euclidean distance is calculated between the new data and all the points that were in the training set. The closest point to the new point is how the category gets determined.
+
+```{r eval = FALSE}
+suppressWarnings(suppressMessages(library(class)))
+
+model <- knn(traindata[,-1], testdata[,-1], traindata[,1], k = 3 )
+rank <- as.data.frame(model)
+rank$team <- testnames
+names(rank) <- c("ranks", "teams")
+sort_teams_knn <- rank[with(rank, order(ranks)), ]
+```
+
+###Defensive Prediction Results
+
+These are the results that were obtained by the machine learning algorithms. It shows the break down of the top ten teams by the model that predicted them. It then shows the ranking of the teams with the three models combined. This is calculated by the 1st place team getting 10 pts and the last place team getting 1. This is repeated for all of the models. The points are totaled up and then the teams are ranked by the total points. The last part comapres the predictied results with the actual results. It comapares where the top 8 teams finished in the actual tournament to where the models predicted they would finish.
+
+Rank |KNN        |Model Tree     |Decision Tree 
+-----|-----------|---------------|--------------
+1    |Villanova  |Michigan St.   |Villanova     
+2    |Kansas     |Villanova      |North Carolina
+3    |SMU        |North Carolina |Indiana       
+4    |Syracuse   |Purdue         |Kentucky      
+5    |Miami (FL.)|Kansas         |Virgina       
+6    |Gonzaga    |Wichita St.    |Michigan St.   
+7    |Arizona    |Virgina        |Louisville    
+8    |Oklahoma   |Indiana        |UCONN         
+9    |BYU        |Gonzaga        |Kansas        
+10   |Yale       |St. Mary's (CA)|Xavier        
+
+Rank|Teams            |Points
+----|-----------------|------
+1   |Villanova        |29
+2   |North Carolina   |17
+3   |Kansas           |17
+4   |Michigan St.     |15
+5   |Indiana          |11
+6   |Virgina          |10
+7   |SMU              |8
+8   |Syracuse         |7
+
+Tournament Place|Actual Teams     |Predicted
+----------------|-----------------|---------
+Champ           |Villanova        |Villanova
+Finals          |North Carolina   |North Carolina
+Final 4         |Syracuse         |Kansas
+Final 4         |Oklahoma         |Michigan St
+Elite 8         |Virgina          |Virgina
+Elite 8         |Oregon           |Indiana
+Elite 8         |Kansas           |SMU
+Elite 8         |Notre Dame       |Syracuse
+
+
+##Predictions Based on Offensive Statistics
+
+The following section will cover the process of modeling the offensive statistics to predict the top 8 teams.  The models used will be KNN, SVM, and Random Forest.  As a precursor to modeling, the offensive statistics are retrieved from the cloud MySQL database.
+
+```{r}
+
+bbmetricDB <- DBconnect()
+
+stats  <- dbGetQuery(bbmetricDB, 
+ "                              
+  select  
+         team_name,                season_start_year,
+         points_per_game,  average_scoring_margin,   offensive_efficiency,
+         floor_percentage, overtime_points_per_game, average_1st_half_margin,
+         average_2nd_half_margin, average_overtime_margin, points_from_2_pointers,
+         points_from_3_pointers, percent_of_points_from_2_pointers, 
+         percent_of_points_from_3_pointers,
+         percent_of_points_from_free_throws, shooting_pct, effective_field_goal_pct,
+         three_point_pct,  two_point_pct,  free_throw_pct,
+         true_shooting_percentage, field_goals_made_per_game, field_goals_attempted_per_game,
+         three_pointers_made_per_game, three_pointers_attempted_per_game,
+         free_throws_made_per_game, free_throws_attempted_per_game, three_point_rate,
+         two_point_rate, fta_per_fga, ftm_per_100_possessions,  free_throw_rate,
+         non_blocked_2_pt_pct, offensive_rebounds_per_game, offensive_rebounding_pct,
+         assists_per_game, turnovers_per_game,  turnovers_per_possession,
+         assist_per_turnover_ratio, assists_per_fgm, assists_per_possession,
+         turnover_pct,games_played, possessions_per_game,
+         extra_chances_per_game, effective_possession_ratio, win_pct_all_games,
+         ncaa_round_64,   ncaa_round_32, ncaa_sweet_16,
+         ncaa_elite_8,   ncaa_final_4,   ncaa_championship_game,
+         ncaa_champion,
+         ncaa_round_64 +
+         ncaa_round_32 * 2 +
+         ncaa_sweet_16 * 4 +
+         ncaa_elite_8 * 8 + 
+         ncaa_final_4 * 16 +
+         ncaa_championship_game * 32 +
+         ncaa_champion  * 64 as weighted_rank
+   from team_stats")
+
+```
+
+```{r, include = FALSE}
+
+dbDisconnect(bbmetricDB)
+
+```
+
+The following offensive statistics will be used to to predict the top 8 teams of the 2016 NCAA tournament.  Not all statistics will be important but are included from comprehesiveness.  The model will determine the importance of each variable during the training process.
+
+```{r, echo = FALSE, include = FALSE}
+cols <- as.data.frame(colnames(stats))
+names(cols) <- "Column Names"
+
+c1 <- cols[1:20,]
+
+c2 <- cols[21:40,]
+ 
+c3 <- cols[41:60,]
+ 
+c3[is.na(c3)] <- " "
+
+c <- cbind(c1, c2)
+c <- cbind(c, c3)
+
+colnames(c) <- c("Variable", "Variable", "Variable")
+
+```
+
+```{r, echo = FALSE}
+kable(c, caption = "Offensive Variables")
+
+```
+
+The predictor variable will be `weighted_rank`, which is calculated based on a team's advancement in the NCAA tournament.
+
+Bracket |  Points Assigned
+--------|-------------------
+Round of 64 | 1  
+Round of 32 | 2  
+Sweet 16 | 4  
+Elite 8 | 8  
+Final 4 | 16  
+Championship Game | 32  
+Champion | 64  
+
+###Training and Test Data
+
+Create a offensive training dataset using the team statistics for years prior to 2015.
+
+```{r}
+
+# create a training dataset based on all years prior to 2015
+stats_train <- subset(stats, season_start_year < 2015) # take all years prior to 2015
+
+# store the team, year, ncaa_tournament indicators, and the weigted bracket rank
+stats_train_results <- select(stats_train, team_name, season_start_year, ncaa_round_64:weighted_rank)
+
+```
+Create the test dataset using the team statistics for the 2015 NCAA basketball season.
+
+```{r}
+
+# create a training dataset based on all years prior to 2015
+stats_test <- filter(stats, season_start_year == 2015, ncaa_round_64 == 1) 
+
+
+# store the team, year, ncaa_tournament indicators, and the weigted bracket rank
+stats_test_results <- select(stats_test, team_name, season_start_year, ncaa_round_64:weighted_rank)
+
+```
+
+Finally, remove the columns from the training dataset which will not be used in models
+
+```{r}
+
+stats_train <- select(stats_train, -(team_name:season_start_year), -(ncaa_round_32:ncaa_champion))
+
+str(stats_train)
+
+```
+
+###KNN Model
+
+```{r, include = FALSE}
+
+libs <- c("ISLR", "caret", "e1071", "pROC", "kernlab")
+lapply(libs, library, character.only = TRUE)
+
+options(stringsAsFactors = FALSE, warn = -1)
+```
+
+
+```{r, include = TRUE}
+set.seed(600)
+
+
+ctrl <- trainControl(method="repeatedcv", repeats = 5, number = 10)
+
+knnFit  <-   train(weighted_rank ~ .,
+                   data   = stats_train,
+                   method = "knn",
+                   trControl = ctrl,
+                   preProcess = c("center","scale", "pca"),
+                   tuneLength = 20)
+
+knnFit
+
+```
+
+Let's see which variables were determined to be the most important in the KNN model:
+  
+```{r, eval = TRUE}
+
+dotPlot(varImp(knnFit), main = "KNN Model - Most Relevant Variables")
+    
+```
+
+###Random Forest
+
+```{r, include = FALSE}
+
+suppressWarnings(suppressMessages(library(randomForest)))
+suppressWarnings(suppressMessages(library(data.table)))
+
+```
+
+```{r, include = TRUE}
+
+set.seed(600)
+
+rfFit <-train(weighted_rank ~.,
+                 data=stats_train,
+                 method="rf",
+                 trControl=trainControl(method="cv",number=5),
+                 prox=TRUE, importance = TRUE,
+                 allowParallel=TRUE)
+                
+rfFit
+
+print(rfFit$finalModel)
+
+dotPlot(varImp(rfFit), main = "Random Forest Model - Most Relevant Variables")
+
+```
+
+###Support Vector Machine (SVM)
+
+```{r, include = TRUE}
+
+set.seed(600)
+
+SVMFit <- train(weighted_rank ~., data = stats_train, method="svmRadial", trControl = ctrl)
+
+SVMFit
+
+dotPlot(varImp(SVMFit), main = "SVM Model - Most Relevant Variables")
+```
+
+###Predict 
+
+To predict the top 8 teams in the NCAA tournament using the KNN, Random Forest, and SVM models, provide the test dataset to the three models. 
+
+```{r, include = TRUE}
+    
+AllModels <- list(knn = knnFit,
+                  rf  = rfFit,
+                  svm = SVMFit)
+
+
+AllModelPred <- predict(AllModels, newdata = stats_test)
+
+stats_test_results <- cbind(stats_test_results, as.data.frame(AllModelPred))
+
+```
+
+Compare and store the models' predictions against the actual winners:
+
+```{r}
+# Top 8 teams based on kNN
+knn_top8 <- stats_test_results %>% 
+                select(team_name, knn) %>%
+                arrange(desc(knn)) %>% 
+                slice(1:8) %>% 
+                mutate(rank = row_number())
+                
+# Top 8 teams based on SVM
+svm_top8 <- stats_test_results %>% 
+                select(team_name, svm) %>%
+                arrange(desc(svm)) %>% 
+                slice(1:8) %>% 
+                mutate(rank = row_number())            
+
+# Top 8 teams based on Random Forest
+rf_top8 <- stats_test_results %>% 
+                select(team_name, rf) %>%
+                arrange(desc(rf)) %>% 
+                slice(1:8) %>% 
+                mutate(rank = row_number())
+
+top8.disp <-
+          knn_top8 %>% 
+          inner_join(svm_top8, by="rank") %>% 
+          inner_join(rf_top8, by="rank") %>%
+          select(rank, team_name.x, team_name.y, team_name) %>%
+          rename(Rank = rank, KNN = team_name.x, SVM = team_name.y, RF = team_name)
+
+```
+
+###Offensive Prediction Results
+
+These are the results that were obtained by the machine learning algorithms - kNN, SVM, and Random Forest.
+
+```{R, echo = FALSE}
+
+kable(top8.disp)
+
+```
+                
+Blending the rankings from each model:
+
+```{r}
+top8 <- rbindlist(list(knn_top8, svm_top8, rf_top8))
+
+top8$wt <-  abs(top8$rank - 8 ) + 1
+
+top8.blended <- 
+                top8 %>% 
+                group_by(team_name) %>% 
+                summarise(points = sum(wt)) %>% 
+                arrange(desc(points)) %>% 
+                slice(1:8) %>% 
+                mutate(rank = row_number(desc(points))) %>%
+                select(rank, team_name, points)
+
+kable(top8.blended)
+
+```
+
+Note.  The blended results identified four teams correctly in the Elite 8 round.  However, it did not place any of them in rank order correctly.  In comparison, the Random Forest model identified 6 teams in the Elite 8 and correctly placed three teams in rank order.  The Random Forest model will be selected as the best model from an offensive perspective.
+
+#Conclusions
+
+##Prediction Results Summary
+
+Tournament Place|Actual Teams     |Defensive Prediction| Offensive Prediction (Random Forest)
+----------------|-----------------|--------------------|---------------------------------------
+Champ           |Villanova        |Villanova           | Villanova
+Finals          |North Carolina   |North Carolina      | North Carolina
+Final 4         |Syracuse         |Kansas              | Michigan St.
+Final 4         |Oklahoma         |Michigan St         | Oklahoma
+Elite 8         |Virginia         |Virgina             | Kansas
+Elite 8         |Oregon           |Indiana             | Virginia
+Elite 8         |Kansas           |SMU                 | Oregon
+Elite 8         |Notre Dame       |Syracuse            | Texas A&M
+
+
+Overall, the results of the models are encouraging. By design, this project separately models offensive statistics from defensive statistics.  Even with this limitation, the models were able to correctly identify the championship game and the overall champion. Additionally, the defensive model predicted Virgina making it to the Elite 8. It did correctly predict Syracuse and Kansas as the top 8 teams; it just placed them in the wrong rounds. Defensive prediction results with three exactly correct and another 2 partially correct out of 8 is a good indicator.
+
+
+Within the offensive models, the Random Forest model proves to be the most accurate of the three models used.  This model correctly identified 6 teams among the Elite 8 with Villanova, North Carolina, and Oklahoma being placed correctly in rank order.
+
+It could be that the teams in the top 8 that were not predicted based on the defensive model either had a huge offensive presence and/or were ranked very low on defense. These factors would keep them lower on this list and would not be predicted properly. A similar consideration would apply to the offensive models from a defensive perspective. 
+
+Combining the offensive and defensive statistics together would be the next step in the modeling process for this topic.
